@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use hickory_client::client::{Client, SyncClient};
@@ -6,6 +7,11 @@ use hickory_client::op::DnsResponse;
 use hickory_client::rr::{DNSClass, Name, RData, Record, RecordType};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
+
+// IPs are updated on an hourly basis
+// The hour is divided into 6 parts.
+// Computers we think are on are checked at each one.
+// The rest of them only get checked once every hour.
 
 fn generate_domains() -> Vec<String> {
     let mut domains = Vec::new();
@@ -20,17 +26,6 @@ fn generate_domains() -> Vec<String> {
         domains.push(domain);
     }
     domains
-}
-
-fn generate_ips(ips: &mut Vec<(String, Ipv4Addr)>) {
-    for i in 0..255 {
-        for j in 0..=255 { // 255
-            let ip1 = Ipv4Addr::new(172, 29, j, i);
-            if !ips.iter().any(|(_, ip)| *ip == ip1) {
-                ips.push((String::new(), ip1));
-            }
-        }
-    }
 }
 
 fn check_domains(domains: Vec<String>) -> Vec<(String, Ipv4Addr)> {
@@ -54,6 +49,76 @@ fn check_domains(domains: Vec<String>) -> Vec<(String, Ipv4Addr)> {
     ips
 }
 
+fn generate_ips() -> Vec<Ipv4Addr> {
+    let mut ips = Vec::new();
+    for i in 0..255 {
+        for j in 0..=255 {
+            let ip = Ipv4Addr::new(172, 29, j, i);
+            ips.push(ip);
+        }
+    }
+    ips
+}
+
+#[derive(Default)]
+struct MachineState {
+    last_checked_utc: Option<u64>,
+    up: Option<bool>,
+
+    last_change_utc: Option<u64>,
+    domain: Option<String>,
+    uptime: u64,
+    downtime: u64,
+}
+
+type States = HashMap<Ipv4Addr, MachineState>;
+
+fn now_utc() -> u64 {
+    chrono::Utc::now().timestamp() as u64
+}
+
+async fn restore_state() -> States {
+    let file = tokio::fs::read_to_string("history.csv").await.expect("Failed to read history.csv");
+
+    let mut states = States::new();
+    for (i, line) in file.lines().enumerate() {
+        let parts: Vec<&str> = line.split(',').collect();
+        if parts.len() != 3 {
+            eprintln!("Error line {i}: Wrong number of parts");
+            continue;
+        }
+        let Ok(ip) = Ipv4Addr::from_str(parts[0]) else { 
+            eprintln!("Error line {i}: Invalid IP");
+            continue;
+        };
+        let Ok(last_checked_utc) = parts[2].parse() else {
+            eprintln!("Error line {i}: Invalid last checked");
+            continue;
+        };
+        let Ok(up) = parts[3].parse() else {
+            eprintln!("Error line {i}: Invalid up");
+            continue;
+        };
+        let state = states.entry(ip).or_default();
+        match (state.up, up) {
+            (Some(true), true) => state.uptime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc),
+            (Some(false), false) => state.downtime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc),
+            (Some(false), true) | (None, true) => {
+                state.downtime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc);
+                state.last_change_utc = Some(last_checked_utc);
+            },
+            (Some(true), false) | (None, false) => {
+                state.downtime = 0;
+                state.last_change_utc = Some(last_checked_utc);
+            },
+        }
+        state.last_checked_utc = Some(last_checked_utc);
+        state.up = Some(up);
+    }
+
+    states
+}
+
 fn check_ips(ips: Vec<(String, Ipv4Addr)>) -> Vec<(String, Ipv4Addr)> {
     std::env::set_var("RAYON_NUM_THREADS", "3000");
     ips.par_iter().filter_map(|(d, ip)| {
@@ -68,7 +133,10 @@ fn check_ips(ips: Vec<(String, Ipv4Addr)>) -> Vec<(String, Ipv4Addr)> {
     }).collect()
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
+    let mut states = restore_state().await;
+    
     let domains = generate_domains();
     println!("{:?}", domains);
     let mut ips = check_domains(domains);
