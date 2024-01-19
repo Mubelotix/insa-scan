@@ -3,8 +3,11 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::{Instant, Duration};
 use futures::future::select_all;
-use hickory_client::client::{Client, SyncClient};
+use hickory_client::client::{Client, SyncClient, AsyncClient, ClientHandle};
+use hickory_client::tcp::TcpClientStream;
 use hickory_client::udp::UdpClientConnection;
+use hickory_client::proto::iocompat::AsyncIoTokioAsStd;
+
 use hickory_client::op::DnsResponse;
 use hickory_client::rr::{DNSClass, Name, RData, Record, RecordType};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -33,15 +36,28 @@ fn generate_domains() -> Vec<String> {
     domains
 }
 
-fn resolve_domains(domains: Vec<String>) -> HashMap<Ipv4Addr, String> {
+async fn resolve_domains(domains: Vec<String>) -> HashMap<Ipv4Addr, String> {
     let address = "127.0.0.53:53".parse().unwrap();
-    let conn = UdpClientConnection::new(address).unwrap();
-    let client = SyncClient::new(conn);
+    let (stream, sender) = TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(address);
+
+    // Create a new client, the bg is a background future which handles
+    //   the multiplexing of the DNS requests to the server.
+    //   the client is a handle to an unbounded queue for sending requests via the
+    //   background. The background must be scheduled to run before the client can
+    //   send any dns requests
+    let client = AsyncClient::new(stream, sender, None);
+
+    let (mut client, bg) = client.await.expect("connection failed");
+
+    // make sure to run the background task
+    let handle = tokio::spawn(bg);
+
+
 
     let mut ips = HashMap::new();
     for domain in domains {
         let name = Name::from_str(&domain).unwrap();
-        let response: DnsResponse = client.query(&name, DNSClass::IN, RecordType::A).unwrap();
+        let response: DnsResponse = client.query(name, DNSClass::IN, RecordType::A).await.unwrap();
         let answers: &[Record] = response.answers();
         for answer in answers {
             if let Some(RData::A(ref ip)) = answer.data() {
@@ -49,6 +65,8 @@ fn resolve_domains(domains: Vec<String>) -> HashMap<Ipv4Addr, String> {
             }
         }
     }
+
+    handle.abort();
 
     ips
 }
@@ -139,7 +157,7 @@ async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64) {
 }
 
 async fn check_ip(ip: Ipv4Addr) -> (Ipv4Addr, bool) {
-    let r = timeout(Duration::from_secs(5), async move {
+    let r = timeout(Duration::from_secs(4), async move {
         TcpStream::connect(
             &std::net::SocketAddr::new(std::net::IpAddr::V4(ip), 22)
         ).await.is_ok()
@@ -157,7 +175,7 @@ async fn update(states: &mut States) {
     candidates.truncate((255*255)/6);
 
     let mut tasks = Vec::new();
-    for _ in 0..100 {
+    for _ in 0..200 {
         let Some(ip) = candidates.pop() else { break };
         tasks.push(Box::pin(check_ip(ip.0)));
     }
@@ -200,7 +218,7 @@ async fn main() {
 
     // Try associating domains to IPs
     let domains = generate_domains();
-    let ips = resolve_domains(domains);
+    let ips = resolve_domains(domains).await;
     println!("{} domains found!", ips.len());
     for (ip, domain) in ips {
         states.entry(ip).or_default().domain = Some(domain);
