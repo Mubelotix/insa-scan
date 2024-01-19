@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
+use std::time::{Instant, Duration};
+use futures::future::select_all;
 use hickory_client::client::{Client, SyncClient};
 use hickory_client::udp::UdpClientConnection;
 use hickory_client::op::DnsResponse;
 use hickory_client::rr::{DNSClass, Name, RData, Record, RecordType};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+use tokio::time::{sleep, timeout};
 
 
 // IPs are updated on an hourly basis
@@ -28,20 +33,19 @@ fn generate_domains() -> Vec<String> {
     domains
 }
 
-fn check_domains(domains: Vec<String>) -> Vec<(String, Ipv4Addr)> {
+fn resolve_domains(domains: Vec<String>) -> HashMap<Ipv4Addr, String> {
     let address = "127.0.0.53:53".parse().unwrap();
     let conn = UdpClientConnection::new(address).unwrap();
     let client = SyncClient::new(conn);
 
-    let mut ips = Vec::new();
-
+    let mut ips = HashMap::new();
     for domain in domains {
         let name = Name::from_str(&domain).unwrap();
         let response: DnsResponse = client.query(&name, DNSClass::IN, RecordType::A).unwrap();
         let answers: &[Record] = response.answers();
         for answer in answers {
             if let Some(RData::A(ref ip)) = answer.data() {
-                ips.push((domain.clone(), ip.0));
+                ips.insert(ip.0, domain.clone());
             }
         }
     }
@@ -79,6 +83,7 @@ fn now_utc() -> u64 {
 
 async fn restore_state() -> States {
     let file = tokio::fs::read_to_string("history.csv").await.expect("Failed to read history.csv");
+    let now_utc = now_utc();
 
     let mut states = States::new();
     for (i, line) in file.lines().enumerate() {
@@ -87,15 +92,18 @@ async fn restore_state() -> States {
             eprintln!("Error line {i}: Wrong number of parts");
             continue;
         }
-        let Ok(ip) = Ipv4Addr::from_str(parts[0]) else { 
-            eprintln!("Error line {i}: Invalid IP");
-            continue;
-        };
         let Ok(last_checked_utc) = parts[2].parse() else {
             eprintln!("Error line {i}: Invalid last checked");
             continue;
         };
-        let Ok(up) = parts[3].parse() else {
+        if last_checked_utc + 30 * 86_400 < now_utc {  // Too old
+            continue;
+        }
+        let Ok(ip) = Ipv4Addr::from_str(parts[0]) else { 
+            eprintln!("Error line {i}: Invalid IP");
+            continue;
+        };
+        let Ok(up) = parts[1].parse() else {
             eprintln!("Error line {i}: Invalid up");
             continue;
         };
@@ -108,7 +116,7 @@ async fn restore_state() -> States {
                 state.last_change_utc = Some(last_checked_utc);
             },
             (Some(true), false) | (None, false) => {
-                state.downtime = 0;
+                state.uptime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc);
                 state.last_change_utc = Some(last_checked_utc);
             },
         }
@@ -119,29 +127,88 @@ async fn restore_state() -> States {
     states
 }
 
-fn check_ips(ips: Vec<(String, Ipv4Addr)>) -> Vec<(String, Ipv4Addr)> {
-    std::env::set_var("RAYON_NUM_THREADS", "3000");
-    ips.par_iter().filter_map(|(d, ip)| {
-        let r = std::net::TcpStream::connect_timeout(
-            &std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), 22),
-            std::time::Duration::from_secs(1),
-        );
-        match r {
-            Ok(_) => Some((d.clone(), *ip)),
-            Err(_) => None,
+async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64) {
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("history.csv")
+        .await
+        .expect("Failed to open history.csv");
+    let line = format!("{},{},{}\n", ip, up, now_utc);
+    file.write_all(line.as_bytes()).await.expect("Failed to write to history.csv");
+}
+
+async fn check_ip(ip: Ipv4Addr) -> (Ipv4Addr, bool) {
+    let r = timeout(Duration::from_secs(5), async move {
+        TcpStream::connect(
+            &std::net::SocketAddr::new(std::net::IpAddr::V4(ip), 22)
+        ).await.is_ok()
+    }).await;
+    (ip, r == Ok(true))
+}
+
+async fn update(states: &mut States) {
+    let mut candidates: Vec<(Ipv4Addr, bool, u64)> = states.iter().map(|(ip, state)| {
+        (*ip, state.up.unwrap_or(false), state.last_checked_utc.unwrap_or(0))
+    }).collect();
+    candidates.sort_by(|(_, up1, t1), (_, up2, t2)| {
+        up1.cmp(up2).reverse().then(t1.cmp(t2))
+    });
+    candidates.truncate((255*255)/6);
+
+    let mut tasks = Vec::new();
+    for _ in 0..100 {
+        let Some(ip) = candidates.pop() else { break };
+        tasks.push(Box::pin(check_ip(ip.0)));
+    }
+
+    while !tasks.is_empty() {
+        let ((addr, up), _, new_tasks) = select_all(tasks).await;
+        tasks = new_tasks;
+        if let Some(ip) = candidates.pop() {
+            tasks.push(Box::pin(check_ip(ip.0)));
         }
-    }).collect()
+        let now_utc = now_utc();
+        let state = states.entry(addr).or_default();
+        match (state.up, up) {
+            (Some(true), true) => state.uptime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
+            (Some(false), false) => state.downtime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
+            (Some(false), true) | (None, true) => {
+                state.downtime += now_utc - state.last_checked_utc.unwrap_or(now_utc);
+                state.last_change_utc = Some(now_utc);
+            },
+            (Some(true), false) | (None, false) => {
+                state.uptime += now_utc - state.last_checked_utc.unwrap_or(now_utc);
+                state.last_change_utc = Some(now_utc);
+            },
+        }
+        state.last_checked_utc = Some(now_utc);
+        if state.up != Some(up) {
+            save_state(addr, up, now_utc).await;
+        }
+        state.up = Some(up);
+    }
 }
 
 #[tokio::main]
 async fn main() {
+    // Restore state for all IPs
     let mut states = restore_state().await;
-    
+    for ip in generate_ips() {
+        states.entry(ip).or_default();
+    }
+
+    // Try associating domains to IPs
     let domains = generate_domains();
-    println!("{:?}", domains);
-    let mut ips = check_domains(domains);
-    generate_ips(&mut ips);
-    println!("{:?}", ips);
-    let ips = check_ips(ips);
-    println!("{:?}", ips);
+    let ips = resolve_domains(domains);
+    println!("{} domains found!", ips.len());
+    for (ip, domain) in ips {
+        states.entry(ip).or_default().domain = Some(domain);
+    }
+    
+    loop {
+        let now = Instant::now();
+        update(&mut states).await;
+        sleep(Duration::from_secs(600) - now.elapsed()).await;
+    }
 }
