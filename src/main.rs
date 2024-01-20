@@ -26,31 +26,31 @@ fn generate_domains() -> Vec<String> {
     let mut domains = Vec::new();
     for room in [11, 13, 15, 17] {
         for i in 1..20 {
-            let domain = format!("iti-mahr2{room}-{i:02}.insa-rouen.fr");
+            let domain = format!("iti-mahr2{room}-{i:02}");
             domains.push(domain);
         }
     }
     for i in 1..20 {
-        let domain = format!("meca-{:02}.insa-rouen.fr", i);
+        let domain = format!("meca-{:02}", i);
         domains.push(domain);
     }
     for i in 1..20 {
-        let domain = format!("stpi-aio-{:02}.insa-rouen.fr", i);
+        let domain = format!("stpi-aio-{:02}", i);
         domains.push(domain);
     }
     for room in [3, 5, 7, 9] {
         for i in 1..20 {
-            let domain = format!("mahr2{room:02}-{i:02}.insa-rouen.fr");
+            let domain = format!("mahr2{room:02}-{i:02}");
             domains.push(domain);
         }
     }
     for room in [3, 5, 7] {
         for i in 1..25 {
-            let domain = format!("boar2{room:02}-{:02}.insa-rouen.fr", i);
+            let domain = format!("boar2{room:02}-{:02}", i);
             domains.push(domain);
         }
     }
-    domains.push(String::from("lin-2d-mini-03.insa-rouen.fr"));
+    domains.push(String::from("lin-2d-mini-03"));
     domains.push(String::from("lin-2d-29"));
     domains
 }
@@ -75,7 +75,7 @@ async fn resolve_domains(domains: Vec<String>) -> HashMap<Ipv4Addr, String> {
 
     let mut ips = HashMap::new();
     for domain in domains {
-        let name = Name::from_str(&domain).unwrap();
+        let name = Name::from_str(&format!("{domain}.insa-rouen.fr")).unwrap();
         let response: DnsResponse = client.query(name, DNSClass::IN, RecordType::A).await.unwrap();
         let answers: &[Record] = response.answers();
         for answer in answers {
@@ -236,19 +236,21 @@ async fn update_stats(states: &States) {
         let last_checked_utc = state.last_checked_utc.unwrap_or(0);
         let uptime = state.uptime + if up { now_utc - state.last_checked_utc.unwrap_or(now_utc) } else { 0 };
         let downtime = state.downtime + if !up { now_utc - state.last_checked_utc.unwrap_or(now_utc) } else { 0 };
+        let domain = state.domain.as_ref().map(|s| s.as_str()).unwrap_or("");
         if uptime == 0 {
             continue;
         }
-        lines.push(format!("{ip},{up},{uptime},{downtime},{last_change_utc},{last_checked_utc}"));
+        lines.push(format!("{ip},{up},{uptime},{downtime},{last_change_utc},{last_checked_utc},{domain}"));
     }
     lines.sort();
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(true)
         .open("stats.csv")
         .await
         .expect("Failed to open stats.csv");
-    file.write_all(b"ip,up,uptime,downtime,last_change_utc,last_checked_utc\n").await.expect("Failed to write to stats.csv");
+    file.write_all(b"ip,up,uptime,downtime,last_change_utc,last_checked_utc,domain\n").await.expect("Failed to write to stats.csv");
     file.write_all(lines.join("\n").as_bytes()).await.expect("Failed to write to stats.csv");
 }
 
@@ -268,6 +270,7 @@ async fn main() {
         states.entry(ip).or_default().domain = Some(domain);
     }
     
+    update_stats(&states).await;
     loop {
         let now = Instant::now();
         update(&mut states).await;
