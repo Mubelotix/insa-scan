@@ -10,3 +10,4 @@ tokio = { version = "1.13", features = ["full"] }
 chrono = "0.4"
 futures = "0.3"
 string-tools = "0.1"
+progress_bar = "1.0"

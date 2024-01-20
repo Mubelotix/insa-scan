@@ -7,6 +7,7 @@ use string_tools::{get_all_before_strict, get_all_after_strict, get_all_between_
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
+use progress_bar::{global::*, Color, Style};
 
 // IPs are updated on an hourly basis
 // The hour is divided into 6 parts.
@@ -115,7 +116,7 @@ async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64) {
     file.write_all(line.as_bytes()).await.expect("Failed to write to history.csv");
 }
 
-async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Option<ExtendedInfo>) {
+async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
     let r = timeout(Duration::from_secs(4), async move {
         TcpStream::connect(
             &std::net::SocketAddr::new(std::net::IpAddr::V4(ip), 22)
@@ -123,7 +124,7 @@ async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Op
     }).await;
     let up = r == Ok(true);
     let extended_info = if load_extended_info && up {
-        load_extented_info(ip).await
+        Some(load_extented_info(ip).await)
     } else {
         None
     };
@@ -138,6 +139,8 @@ async fn update(states: &mut States) {
         up1.cmp(up2).reverse().then(t1.cmp(t2))
     });
     candidates.truncate((255*255)/6);
+    candidates.reverse();
+    init_progress_bar_with_eta(candidates.len());
 
     let mut tasks = Vec::new();
     for _ in 0..200 {
@@ -147,15 +150,20 @@ async fn update(states: &mut States) {
 
     let mut i = 0;
     while !tasks.is_empty() {
-        let ((addr, up, extended_info), _, new_tasks) = select_all(tasks).await;
+        let ((ip, up, extended_info), _, new_tasks) = select_all(tasks).await;
         tasks = new_tasks;
         if let Some(ip) = candidates.pop() {
             tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none())));
         }
         let now_utc = now_utc();
-        let state = states.entry(addr).or_default();
-        if let Some(extended_info) = extended_info {
-            state.extended_info = Some(extended_info);
+        let state = states.entry(ip).or_default();
+        match extended_info {
+            Some(Ok(extended_info)) => state.extended_info = Some(extended_info),
+            Some(Err(err)) => {
+                print_progress_bar_info("Failed", &format!("to load extended info for {ip}: {err:?}"), Color::Yellow, Style::Bold);
+                state.extended_info = None;
+            },
+            None => (),
         }
         match (state.up, up) {
             (Some(true), true) => state.uptime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
@@ -171,14 +179,17 @@ async fn update(states: &mut States) {
         }
         state.last_checked_utc = Some(now_utc);
         if state.up != Some(up) {
-            save_state(addr, up, now_utc).await;
+            save_state(ip, up, now_utc).await;
         }
         state.up = Some(up);
         if (i % 500) == 0 {
             update_stats(&states).await;
+            print_progress_bar_info("Updated", "Stats have been updated", Color::Green, Style::Bold)
         }
         i += 1;
+        inc_progress_bar();
     }
+    finalize_progress_bar();
 }
 
 async fn update_stats(states: &States) {
@@ -188,9 +199,9 @@ async fn update_stats(states: &States) {
         let up = state.up.unwrap_or(false);
         let last_change_utc = state.last_change_utc.unwrap_or(0);
         let last_checked_utc = state.last_checked_utc.unwrap_or(0);
-        let uptime = state.uptime + if up { now_utc - state.last_checked_utc.unwrap_or(now_utc) } else { 0 };
-        let downtime = state.downtime + if !up { now_utc - state.last_checked_utc.unwrap_or(now_utc) } else { 0 };
-        if uptime == 0 {
+        let uptime = state.uptime;
+        let downtime = state.downtime;
+        if uptime == 0 && !up {
             continue;
         }
         let hostname = state.extended_info.as_ref().map(|info| info.hostname.as_str()).unwrap_or("");
@@ -238,13 +249,17 @@ impl ExtendedInfo {
     }
 }
 
-async fn load_extented_info(ip: Ipv4Addr) -> Option<ExtendedInfo> {
+async fn load_extented_info(ip: Ipv4Addr) -> Result<ExtendedInfo, String> {
     let r = timeout(
         Duration::from_secs(3),
         run_shell_command(format!("ssh -oBatchMode=yes -oStrictHostKeyChecking=no \"sgirard@{ip}\" \"hostname; echo MUBELOTIX-SEPARATOR; cat /proc/cpuinfo; echo MUBELOTIX-SEPARATOR; cat /proc/meminfo; echo MUBELOTIX-SEPARATOR; ip addr\""))
     ).await;
-    //println!("{}: {:?}", ip, r);
-    r.ok().and_then(|r| r.ok()).and_then(|data| {
+    let r = match r {
+        Ok(r) => r?,
+        Err(_) => return Err(String::from("Timeout")),
+    };
+    
+    let inner = |data: &str| -> Option<ExtendedInfo> {
         let hostname = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
         let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
         let cpuinfo = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
@@ -253,12 +268,14 @@ async fn load_extented_info(ip: Ipv4Addr) -> Option<ExtendedInfo> {
         let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
         let ipaddr = data;
         Some(ExtendedInfo {
-            hostname: hostname.trim().to_owned(),
-            cpuinfo: cpuinfo.trim().to_owned(),
-            meminfo: meminfo.trim().to_owned(),
-            ipaddr: ipaddr.trim().to_owned(),
+            hostname: hostname.trim().replace(",", " "),
+            cpuinfo: cpuinfo.trim().replace(",", " "),
+            meminfo: meminfo.trim().replace(",", " "),
+            ipaddr: ipaddr.trim().replace(",", " "),
         })
-    })
+    };
+
+    inner(&r).ok_or_else(|| String::from("Invalid response"))
 }
 
 #[tokio::main]
