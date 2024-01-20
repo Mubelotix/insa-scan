@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::{Instant, Duration};
@@ -31,12 +31,16 @@ pub async fn run_shell_command(command: impl AsRef<str>) -> Result<String, Strin
     }
 }
 
-fn generate_ips() -> Vec<Ipv4Addr> {
-    let mut ips = Vec::new();
-    for i in 0..255 {
+fn is_blacklisted(ip: Ipv4Addr) -> bool {
+    ip.octets()[2] == 0 || ip.octets()[2] == 33 || ip == Ipv4Addr::new(172, 29, 4, 250)
+}
+
+fn generate_ips() -> HashSet<Ipv4Addr> {
+    let mut ips = HashSet::new();
+    for i in 0..=255 {
         for j in 0..=255 {
-            let ip = Ipv4Addr::new(172, 29, j, i);
-            ips.push(ip);
+            let ip = Ipv4Addr::new(172, 29, i, j);
+            ips.insert(ip);
         }
     }
     ips
@@ -288,6 +292,8 @@ async fn main() {
     for ip in generate_ips() {
         states.entry(ip).or_default();
     }
+
+    states.retain(|ip, _| !is_blacklisted(*ip));
     
     update_stats(&states).await;
     loop {
