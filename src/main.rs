@@ -120,7 +120,7 @@ async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64, data_dir: &str) {
     file.write_all(line.as_bytes()).await.expect("Failed to write to history.csv");
 }
 
-async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
+async fn check_ip(ip: Ipv4Addr, load_extended_info: bool, data_dir: &str) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
     let r = timeout(Duration::from_secs(4), async move {
         TcpStream::connect(
             &std::net::SocketAddr::new(std::net::IpAddr::V4(ip), 22)
@@ -128,7 +128,7 @@ async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Op
     }).await;
     let up = r == Ok(true);
     let extended_info = if load_extended_info && up {
-        Some(load_extented_info(ip).await)
+        Some(load_extented_info(ip, data_dir).await)
     } else {
         None
     };
@@ -149,7 +149,7 @@ async fn update(states: &mut States, data_dir: &str) {
     let mut tasks = Vec::new();
     for _ in 0..200 {
         let Some(ip) = candidates.pop() else { break };
-        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none())));
+        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none(), data_dir)));
     }
 
     let mut i = 0;
@@ -157,7 +157,7 @@ async fn update(states: &mut States, data_dir: &str) {
         let ((ip, up, extended_info), _, new_tasks) = select_all(tasks).await;
         tasks = new_tasks;
         if let Some(ip) = candidates.pop() {
-            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none())));
+            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none(), data_dir)));
         }
         let now_utc = now_utc();
         let state = states.entry(ip).or_default();
@@ -253,10 +253,10 @@ impl ExtendedInfo {
     }
 }
 
-async fn load_extented_info(ip: Ipv4Addr) -> Result<ExtendedInfo, String> {
+async fn load_extented_info(ip: Ipv4Addr, data_dir: &str) -> Result<ExtendedInfo, String> {
     let r = timeout(
         Duration::from_secs(3),
-        run_shell_command(format!("ssh -oBatchMode=yes -oStrictHostKeyChecking=no \"sgirard@{ip}\" \"hostname; echo MUBELOTIX-SEPARATOR; cat /proc/cpuinfo; echo MUBELOTIX-SEPARATOR; cat /proc/meminfo; echo MUBELOTIX-SEPARATOR; ip addr\""))
+        run_shell_command(format!("ssh -i {data_dir}/ssh-key -oBatchMode=yes -oStrictHostKeyChecking=no \"sgirard@{ip}\" \"hostname; echo MUBELOTIX-SEPARATOR; cat /proc/cpuinfo; echo MUBELOTIX-SEPARATOR; cat /proc/meminfo; echo MUBELOTIX-SEPARATOR; ip addr\""))
     ).await;
     let r = match r {
         Ok(r) => r?,
