@@ -33,6 +33,8 @@ fn generate_domains() -> Vec<String> {
         let domain = format!("meca-{:02}.insa-rouen.fr", i);
         domains.push(domain);
     }
+    domains.push(String::from("lin-2d-mini-03.insa-rouen.fr"));
+    domains.push(String::from("lin-2d-29"));
     domains
 }
 
