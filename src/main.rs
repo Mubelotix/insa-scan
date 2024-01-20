@@ -1,22 +1,12 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::os::linux::raw::stat;
 use std::str::FromStr;
 use std::time::{Instant, Duration};
 use futures::future::select_all;
-use hickory_client::client::{Client, SyncClient, AsyncClient, ClientHandle};
-use hickory_client::tcp::TcpClientStream;
-use hickory_client::udp::UdpClientConnection;
-use hickory_client::proto::iocompat::AsyncIoTokioAsStd;
-
-use hickory_client::op::DnsResponse;
-use hickory_client::rr::{DNSClass, Name, RData, Record, RecordType};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use string_tools::{get_all_before, get_all_before_strict, get_all_after_strict};
+use string_tools::{get_all_before_strict, get_all_after_strict};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
-
 
 // IPs are updated on an hourly basis
 // The hour is divided into 6 parts.
@@ -38,74 +28,6 @@ pub async fn run_shell_command(command: impl AsRef<str>) -> Result<String, Strin
     } else {
         Err(stdouterr)
     }
-}
-
-fn generate_domains() -> Vec<String> {
-    let mut domains = Vec::new();
-    for room in [11, 13, 15, 17] {
-        for i in 1..20 {
-            let domain = format!("iti-mahr2{room}-{i:02}");
-            domains.push(domain);
-        }
-    }
-    for i in 1..20 {
-        let domain = format!("meca-{:02}", i);
-        domains.push(domain);
-    }
-    for i in 1..20 {
-        let domain = format!("stpi-aio-{:02}", i);
-        domains.push(domain);
-    }
-    for room in [3, 5, 7, 9] {
-        for i in 1..20 {
-            let domain = format!("mahr2{room:02}-{i:02}");
-            domains.push(domain);
-        }
-    }
-    for room in [3, 5, 7] {
-        for i in 1..25 {
-            let domain = format!("boar2{room:02}-{:02}", i);
-            domains.push(domain);
-        }
-    }
-    domains.push(String::from("lin-2d-mini-03"));
-    domains.push(String::from("lin-2d-29"));
-    domains
-}
-
-async fn resolve_domains(domains: Vec<String>) -> HashMap<Ipv4Addr, String> {
-    let address = "127.0.0.53:53".parse().unwrap();
-    let (stream, sender) = TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(address);
-
-    // Create a new client, the bg is a background future which handles
-    //   the multiplexing of the DNS requests to the server.
-    //   the client is a handle to an unbounded queue for sending requests via the
-    //   background. The background must be scheduled to run before the client can
-    //   send any dns requests
-    let client = AsyncClient::new(stream, sender, None);
-
-    let (mut client, bg) = client.await.expect("connection failed");
-
-    // make sure to run the background task
-    let handle = tokio::spawn(bg);
-
-
-
-    let mut ips = HashMap::new();
-    for domain in domains {
-        let name = Name::from_str(&format!("{domain}.insa-rouen.fr")).unwrap();
-        let response: DnsResponse = client.query(name, DNSClass::IN, RecordType::A).await.unwrap();
-        let answers: &[Record] = response.answers();
-        for answer in answers {
-            if let Some(RData::A(ref ip)) = answer.data() {
-                ips.insert(ip.0, domain.clone());
-            }
-        }
-    }
-
-    handle.abort();
-
-    ips
 }
 
 fn generate_ips() -> Vec<Ipv4Addr> {
@@ -318,14 +240,6 @@ async fn main() {
     let mut states = restore_state().await;
     for ip in generate_ips() {
         states.entry(ip).or_default();
-    }
-
-    // Try associating domains to IPs
-    let domains = generate_domains();
-    let ips = resolve_domains(domains).await;
-    println!("{} domains found!", ips.len());
-    for (ip, domain) in ips {
-        states.entry(ip).or_default().domain = Some(domain);
     }
     
     update_stats(&states).await;
