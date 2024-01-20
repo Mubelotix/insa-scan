@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
+use std::os::linux::raw::stat;
 use std::str::FromStr;
 use std::time::{Instant, Duration};
 use futures::future::select_all;
@@ -226,6 +227,31 @@ async fn update(states: &mut States) {
     }
 }
 
+async fn update_stats(states: &States) {
+    let now_utc = now_utc();
+    let mut lines = Vec::new();
+    for (ip, state) in states {
+        let up = state.up.unwrap_or(false);
+        let last_change_utc = state.last_change_utc.unwrap_or(0);
+        let last_checked_utc = state.last_checked_utc.unwrap_or(0);
+        let uptime = state.uptime + if up { now_utc - state.last_checked_utc.unwrap_or(now_utc) } else { 0 };
+        let downtime = state.downtime + if !up { now_utc - state.last_checked_utc.unwrap_or(now_utc) } else { 0 };
+        if uptime == 0 {
+            continue;
+        }
+        lines.push(format!("{ip},{up},{uptime},{downtime},{last_change_utc},{last_checked_utc}"));
+    }
+    lines.sort();
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("stats.csv")
+        .await
+        .expect("Failed to open stats.csv");
+    file.write_all(b"ip,up,uptime,downtime,last_change_utc,last_checked_utc\n").await.expect("Failed to write to stats.csv");
+    file.write_all(lines.join("\n").as_bytes()).await.expect("Failed to write to stats.csv");
+}
+
 #[tokio::main]
 async fn main() {
     // Restore state for all IPs
@@ -245,6 +271,7 @@ async fn main() {
     loop {
         let now = Instant::now();
         update(&mut states).await;
+        update_stats(&states).await;
         sleep(Duration::from_secs(600) - now.elapsed()).await;
     }
 }
