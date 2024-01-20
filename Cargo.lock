@@ -231,6 +231,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "insa-scan"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "progress_bar",
+ "string-tools",
+ "tokio",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.67"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -291,17 +302,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys",
-]
-
-[[package]]
-name = "network-scanner"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "futures",
- "progress_bar",
- "string-tools",
- "tokio",
 ]
 
 [[package]]
