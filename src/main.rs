@@ -63,8 +63,8 @@ fn now_utc() -> u64 {
     chrono::Utc::now().timestamp() as u64
 }
 
-async fn restore_state() -> States {
-    let file = tokio::fs::read_to_string("history.csv").await.expect("Failed to read history.csv");
+async fn restore_state(data_dir: &str) -> States {
+    let file = tokio::fs::read_to_string(format!("{data_dir}/history.csv")).await.expect("Failed to read history.csv");
     let now_utc = now_utc();
 
     let mut states = States::new();
@@ -109,11 +109,11 @@ async fn restore_state() -> States {
     states
 }
 
-async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64) {
+async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64, data_dir: &str) {
     let mut file = tokio::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open("history.csv")
+        .open(format!("{data_dir}/history.csv"))
         .await
         .expect("Failed to open history.csv");
     let line = format!("{},{},{}\n", ip, up, now_utc);
@@ -135,7 +135,7 @@ async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Op
     (ip, up, extended_info)
 }
 
-async fn update(states: &mut States) {
+async fn update(states: &mut States, data_dir: &str) {
     let mut candidates: Vec<(Ipv4Addr, bool, u64)> = states.iter().map(|(ip, state)| {
         (*ip, state.up.unwrap_or(false), state.last_checked_utc.unwrap_or(0))
     }).collect();
@@ -183,11 +183,11 @@ async fn update(states: &mut States) {
         }
         state.last_checked_utc = Some(now_utc);
         if state.up != Some(up) {
-            save_state(ip, up, now_utc).await;
+            save_state(ip, up, now_utc, data_dir).await;
         }
         state.up = Some(up);
         if (i % 500) == 0 {
-            update_stats(&states).await;
+            update_stats(&states, data_dir).await;
             print_progress_bar_info("Updated", "Stats have been updated", Color::Green, Style::Bold)
         }
         i += 1;
@@ -196,7 +196,7 @@ async fn update(states: &mut States) {
     finalize_progress_bar();
 }
 
-async fn update_stats(states: &States) {
+async fn update_stats(states: &States, data_dir: &str) {
     let now_utc = now_utc();
     let mut lines = Vec::new();
     for (ip, state) in states {
@@ -220,7 +220,7 @@ async fn update_stats(states: &States) {
         .write(true)
         .create(true)
         .truncate(true)
-        .open("stats.csv")
+        .open(format!("{data_dir}/stats.csv"))
         .await
         .expect("Failed to open stats.csv");
     file.write_all(b"ip,up,uptime,downtime,last_change_utc,last_checked_utc,hostname,cpu,mem_kB,swap_kB,mac\n").await.expect("Failed to write to stats.csv");
@@ -284,22 +284,24 @@ async fn load_extented_info(ip: Ipv4Addr) -> Result<ExtendedInfo, String> {
 
 #[tokio::main]
 async fn main() {
+    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| String::from("."));
+
     //let extended_info = load_extented_info(Ipv4Addr::new(172, 29, 4, 250)).await;
     //println!("{:?}", extended_info);
 
     // Restore state for all IPs
-    let mut states = restore_state().await;
+    let mut states = restore_state(&data_dir).await;
     for ip in generate_ips() {
         states.entry(ip).or_default();
     }
 
     states.retain(|ip, _| !is_blacklisted(*ip));
     
-    update_stats(&states).await;
+    update_stats(&states, &data_dir).await;
     loop {
         let now = Instant::now();
-        update(&mut states).await;
-        update_stats(&states).await;
+        update(&mut states, &data_dir).await;
+        update_stats(&states, &data_dir).await;
         sleep(Duration::from_secs(600) - now.elapsed()).await;
     }
 }
