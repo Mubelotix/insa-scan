@@ -8,8 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
-    <script type="module" src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js"></script>
-    <script type="module" src="script.js"></script>
+    <script defer type="module" src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js"></script>
+    <script defer type="module" src="script.js"></script>
+    <script defer src="sortable.min.js"></script>
 </head>
 <body>
     <div id="summary">
@@ -70,6 +71,48 @@
             <div class="room-computer-missing"></div>
         </div>
     </div>
+    <table class="sortable-theme-minimal" data-sortable>
+        <thead>
+            <tr>    
+                <th>&nbsp;</th>
+                <th>Knocky</th>
+                <th>Flor</th>
+                <th>Ella</th>
+                <th>Juan</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Breed</td>
+                <td>Jack Russell</td>
+                <td>Poodle</td>
+                <td>Streetdog</td>
+                <td>Cocker Spaniel</td>
+            </tr>
+            <tr>
+                <td>Age</td>
+                <td>16</td>
+                <td>9</td>
+                <td>10</td>
+                <td>5</td>
+            </tr>
+            <tr>
+                <td>Owner</td>
+                <td>Mother-in-law</td>
+                <td>Me</td>
+                <td>Me</td>
+                <td>Sister-in-law</td>
+            </tr>
+            <tr>
+                <td>Eating Habits</td>
+                <td>Eats everyone's leftovers</td>
+                <td>Nibbles at food</td>
+                <td>Hearty eater</td>
+                <td>Will eat till he explodes</td>
+            </tr>
+        </tbody>
+        
+    </table>
 
     <div class="room">
         <div class="room-header flex-apart">
@@ -164,7 +207,5 @@
             <div class="room-computer-missing"></div>
         </div>
     </div>
-
-
 </body>
 </html>
