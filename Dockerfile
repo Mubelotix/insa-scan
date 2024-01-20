@@ -1,7 +1,22 @@
-FROM alpine:latest
+FROM debian:latest
+RUN apt update
+RUN apt install -y apt-transport-https curl ssh openvpn
+
+#RUN mkdir -p /etc/apt/keyrings
+#RUN curl -sSfL https://packages.openvpn.net/packages-repo.gpg >/etc/apt/keyrings/openvpn.asc
+#RUN echo "deb [signed-by=/etc/apt/keyrings/openvpn.asc] https://packages.openvpn.net/openvpn3/debian bookworm main" >>/etc/apt/sources.list.d/openvpn3.list
+#RUN apt update
+#RUN apt install -y openvpn3
 
 VOLUME /data
 
-ADD target/x86_64-unknown-linux-musl/release/network-scanner /network-scanner
-ENV DATA_DIR=/data
-CMD /network-scanner
+ENV INSA_USERNAME= \
+    INSA_PASSWORD= \
+    DATA_DIR=/data
+
+COPY insa-ovpn-tun-ca.ovpn /insa-ovpn-tun-ca.ovpn
+COPY bootstrap.sh /bootstrap.sh
+RUN chmod +x /bootstrap.sh
+COPY target/x86_64-unknown-linux-musl/release/network-scanner /network-scanner
+
+CMD [ "sh", "-c", "sh /bootstrap.sh" ]
