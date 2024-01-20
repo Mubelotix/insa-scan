@@ -1,0 +1,134 @@
+:root {
+    --primary: #DC6ACF;
+    --text: #fff;
+
+    --background-100: #241b22;
+    --background-200: #393037;
+    --background-300: #4e464c;
+    --background-400: #655e63;
+    --background-500: #7d777b;
+    --background-600: #969094;
+}
+
+.flex-center {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
+
+.flex-apart {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.flex-left {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+body {
+    background-color: var(--background-100);
+    display: flex;
+    flex-direction: column;
+    padding: 2rem 20%;
+    color: var(--text);
+    font-family: 'Roboto', sans-serif;
+}
+
+#summary-head {
+    margin-bottom: 2rem;
+}
+
+#summary-icon {
+    fill: green;
+    width: 5rem;
+    height: 5rem;
+}
+
+#summary-counts {
+    font-size: 2rem;
+    margin-left: 1rem;
+}
+
+#summary-chart {
+    background-color: var(--background-200);
+    padding: 1rem;
+    border-radius: 1rem;
+    border: 1px solid var(--background-300);
+}
+
+.room {
+    background-color: var(--background-200);
+    padding: 1rem;
+    border-radius: 1rem;
+    border: 1px solid var(--background-300);
+    margin-top: 5rem;
+}
+
+.room-header {
+    margin-bottom: 1rem;
+}
+
+.room-header>div {
+    width: calc(100% / 3);
+}
+
+.room-name {
+    font-weight: normal;
+    font-size: 1.5rem;
+    margin: 0;
+}
+
+.room-operational-icon, .room-unreachable-icon {
+    margin-left: .5rem;
+    width: 2rem;
+    height: 2rem;
+}
+
+.room-operational-icon {
+    fill: green;
+}
+
+.room-unreachable-icon {
+    fill: red;
+}
+
+.room-counter {
+    font-size: 3rem;
+    text-align: center;
+}
+
+.room-up-duration {
+    font-size: 1.5rem;
+    text-align: right;
+}
+
+.room-computer-list {
+    display: flex;
+    flex-direction: row;
+}
+
+.room-computer-on, .room-computer-off, .room-computer-missing {
+    flex-grow: 1;
+    height: 2rem;
+    margin: 3px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.room-computer-on {
+    background-color: green;
+}
+
+.room-computer-off {
+    background-color: red;
+}
+
+.room-computer-missing {
+    background-color: var(--background-300);
+}
