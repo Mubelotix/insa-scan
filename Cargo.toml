@@ -11,3 +11,4 @@ rayon = "1.8"
 tokio = { version = "1.13", features = ["full"] }
 chrono = "0.4"
 futures = "0.3"
+string-tools = "0.1"

@@ -12,6 +12,7 @@ use hickory_client::proto::iocompat::AsyncIoTokioAsStd;
 use hickory_client::op::DnsResponse;
 use hickory_client::rr::{DNSClass, Name, RData, Record, RecordType};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use string_tools::{get_all_before, get_all_before_strict, get_all_after_strict};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
@@ -21,6 +22,23 @@ use tokio::time::{sleep, timeout};
 // The hour is divided into 6 parts.
 // Computers we think are on are checked at each one.
 // The rest of them only get checked once every hour.
+
+pub async fn run_shell_command(command: impl AsRef<str>) -> Result<String, String> {
+    let command = command.as_ref();
+    let output = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .output()
+        .await
+        .expect("failed to execute process");
+    let mut stdouterr = String::from_utf8_lossy(&output.stdout).into_owned();
+    stdouterr.push_str(String::from_utf8_lossy(&output.stderr).as_ref());
+    if output.status.success() {
+        Ok(stdouterr)
+    } else {
+        Err(stdouterr)
+    }
+}
 
 fn generate_domains() -> Vec<String> {
     let mut domains = Vec::new();
@@ -106,6 +124,7 @@ struct MachineState {
     last_checked_utc: Option<u64>,
     up: Option<bool>,
 
+    extended_info: Option<ExtendedInfo>,
     last_change_utc: Option<u64>,
     domain: Option<String>,
     uptime: u64,
@@ -175,13 +194,19 @@ async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64) {
     file.write_all(line.as_bytes()).await.expect("Failed to write to history.csv");
 }
 
-async fn check_ip(ip: Ipv4Addr) -> (Ipv4Addr, bool) {
+async fn check_ip(ip: Ipv4Addr, load_extended_info: bool) -> (Ipv4Addr, bool, Option<ExtendedInfo>) {
     let r = timeout(Duration::from_secs(4), async move {
         TcpStream::connect(
             &std::net::SocketAddr::new(std::net::IpAddr::V4(ip), 22)
         ).await.is_ok()
     }).await;
-    (ip, r == Ok(true))
+    let up = r == Ok(true);
+    let extended_info = if load_extended_info && up {
+        load_extented_info(ip).await
+    } else {
+        None
+    };
+    (ip, up, extended_info)
 }
 
 async fn update(states: &mut States) {
@@ -196,17 +221,20 @@ async fn update(states: &mut States) {
     let mut tasks = Vec::new();
     for _ in 0..200 {
         let Some(ip) = candidates.pop() else { break };
-        tasks.push(Box::pin(check_ip(ip.0)));
+        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none())));
     }
 
     while !tasks.is_empty() {
-        let ((addr, up), _, new_tasks) = select_all(tasks).await;
+        let ((addr, up, extended_info), _, new_tasks) = select_all(tasks).await;
         tasks = new_tasks;
         if let Some(ip) = candidates.pop() {
-            tasks.push(Box::pin(check_ip(ip.0)));
+            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none())));
         }
         let now_utc = now_utc();
         let state = states.entry(addr).or_default();
+        if let Some(extended_info) = extended_info {
+            state.extended_info = Some(extended_info);
+        }
         match (state.up, up) {
             (Some(true), true) => state.uptime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
             (Some(false), false) => state.downtime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
@@ -252,6 +280,36 @@ async fn update_stats(states: &States) {
         .expect("Failed to open stats.csv");
     file.write_all(b"ip,up,uptime,downtime,last_change_utc,last_checked_utc,domain\n").await.expect("Failed to write to stats.csv");
     file.write_all(lines.join("\n").as_bytes()).await.expect("Failed to write to stats.csv");
+}
+
+#[derive(Debug)]
+struct ExtendedInfo {
+    hostname: String,
+    cpuinfo: String,
+    meminfo: String,
+    ipaddr: String,
+}
+
+async fn load_extented_info(ip: Ipv4Addr) -> Option<ExtendedInfo> {
+    let r = timeout(
+        Duration::from_secs(3),
+        run_shell_command(format!("ssh \"sgirard@{ip}\" \"hostname; echo MUBELOTIX-SEPARATOR; cat /proc/cpuinfo; echo MUBELOTIX-SEPARATOR; cat /proc/meminfo; echo MUBELOTIX-SEPARATOR; ip addr\""))
+    ).await;
+    r.ok().and_then(|r| r.ok()).and_then(|data| {
+        let hostname = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let cpuinfo = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let meminfo = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let ipaddr = data;
+        Some(ExtendedInfo {
+            hostname: hostname.trim().to_owned(),
+            cpuinfo: cpuinfo.trim().to_owned(),
+            meminfo: meminfo.trim().to_owned(),
+            ipaddr: ipaddr.trim().to_owned(),
+        })
+    })
 }
 
 #[tokio::main]

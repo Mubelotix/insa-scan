@@ -456,6 +456,7 @@ dependencies = [
  "futures",
  "hickory-client",
  "rayon",
+ "string-tools",
  "tokio",
 ]
 
@@ -681,6 +682,12 @@ dependencies = [
  "libc",
  "windows-sys",
 ]
+
+[[package]]
+name = "string-tools"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a2c9b7010788b8d275fd75820e282be8cb3c177c80301d709aa54725322d6a3"
 
 [[package]]
 name = "syn"
