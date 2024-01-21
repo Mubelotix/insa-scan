@@ -197,6 +197,20 @@ tr:has(td:hover) td, th:hover {
     border-color: var(--background-500) !important;
 }
 
+/* Scrollbar */
+
+body::-webkit-scrollbar {
+    width: 1rem;
+}
+
+body::-webkit-scrollbar-track {
+    background-color: var(--background-200);
+}
+
+body::-webkit-scrollbar-thumb {
+    background-color: var(--background-300);
+}
+
 /* Scroll animations */
 
 .room-computer-list.hidden > div {
