@@ -120,14 +120,18 @@ async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64, data_dir: &str) {
     file.write_all(line.as_bytes()).await.expect("Failed to write to history.csv");
 }
 
-async fn check_ip(ip: Ipv4Addr, load_extended_info: bool, data_dir: &str) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
-    let r = timeout(Duration::from_secs(4), async move {
+async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
+    let time_to_wait = match was_up {
+        true => Duration::from_secs(12),
+        false => Duration::from_secs(4),
+    };
+    let r = timeout(time_to_wait, async move {
         TcpStream::connect(
             &std::net::SocketAddr::new(std::net::IpAddr::V4(ip), 22)
         ).await.is_ok()
     }).await;
     let up = r == Ok(true);
-    let extended_info = if load_extended_info && up {
+    let extended_info = if !was_up && up {
         Some(load_extented_info(ip, data_dir).await)
     } else {
         None
@@ -149,7 +153,7 @@ async fn update(states: &mut States, data_dir: &str) {
     let mut tasks = Vec::new();
     for _ in 0..200 {
         let Some(ip) = candidates.pop() else { break };
-        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none(), data_dir)));
+        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().up.unwrap_or(false), data_dir)));
     }
 
     let mut i = 0;
@@ -157,7 +161,7 @@ async fn update(states: &mut States, data_dir: &str) {
         let ((ip, up, extended_info), _, new_tasks) = select_all(tasks).await;
         tasks = new_tasks;
         if let Some(ip) = candidates.pop() {
-            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().extended_info.is_none(), data_dir)));
+            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().up.unwrap_or(false), data_dir)));
         }
         let now_utc = now_utc();
         let state = states.entry(ip).or_default();
