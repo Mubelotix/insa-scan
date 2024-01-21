@@ -124,7 +124,7 @@ async fn update(states: &mut States, data_dir: &str) {
         if (i % 500) == 0 {
             update_stats(&states, data_dir).await;
             save_states(&states, data_dir).await;
-            update_site(&states).await;
+            update_site(&states, data_dir).await;
             print_progress_bar_info("Updated", "Stats have been updated", Color::Green, Style::Bold)
         }
         i += 1;
@@ -176,7 +176,7 @@ fn format_duration(seconds: u64) -> String {
     }
 }
 
-async fn update_site(states: &States) {
+async fn update_site(states: &States, data_dir: &str) {
     let rooms = [("lin-2d", "Serveurs"), ("", "Inconnu")];
 
     let now_utc = now_utc();
@@ -197,6 +197,34 @@ async fn update_site(states: &States) {
     }
 
     let mut pattern = include_str!("../site/pattern.html").to_string();
+
+    // Inline external JS and CSS
+    let script = std::fs::read_to_string(format!("{}/site/script.js", data_dir)).expect("Failed to read script.js");
+    pattern = pattern.replace("<script defer type=\"module\" src=\"script.js\"></script>", &format!("<script type=\"module\">{}</script>", script));
+    let style = std::fs::read_to_string(format!("{}/site/style.css", data_dir)).expect("Failed to read style.css");
+    pattern = pattern.replace("<link rel=\"stylesheet\" href=\"style.css\">", &format!("<style>{}</style>", style));
+
+    // Chart
+    let last_generated_pattern = get_all_between_strict(&pattern, "/*BEGIN-LAST-GENERATED*/", "/*END-LAST-GENERATED*/").unwrap().to_string();
+    let datapoints_pattern = get_all_between_strict(&pattern, "/*BEGIN-DATAPOINTS*/", "/*END-DATAPOINTS*/").unwrap().to_string();
+    let max_up_count_pattern = get_all_between_strict(&pattern, "/*BEGIN-MAX-UP-COUNT*/", "/*END-MAX-UP-COUNT*/").unwrap().to_string();
+    let mut datapoints = Vec::new();
+    let mut max_up_count = 0;
+    for i in (0..7*24).rev() {
+        let time_utc = now_utc - i*3600;
+        let up_count = per_room.values().map(|computers| {
+            computers.iter().filter(|(_, state)| state.up_at(time_utc)).count()
+        }).sum::<usize>();
+        if up_count > max_up_count {
+            max_up_count = up_count;
+        }
+        datapoints.push(format!("{up_count}"));
+    }
+    pattern = pattern.replace(&last_generated_pattern, &(now_utc * 1000).to_string());
+    pattern = pattern.replace(&datapoints_pattern, &datapoints.join(","));
+    pattern = pattern.replace(&max_up_count_pattern, &max_up_count.to_string());
+
+    // Rooms
     let room_pattern = get_all_between_strict(&pattern, "<!--BEGIN-ROOM-->", "<!--END-ROOM-->").unwrap().to_string();
     let row_pattern = get_all_between_strict(&room_pattern, "<!--BEGIN-ROW-->", "<!--END-ROW-->").unwrap().to_string();
     let mut rooms_final = String::new();
@@ -328,6 +356,11 @@ impl MachineState {
 
     pub fn up(&self) -> bool {
         self.changes.len() % 2 == 1
+    }
+
+    pub fn up_at(&self, time_utc: u64) -> bool {
+        let idx = self.changes.binary_search(&time_utc).unwrap_or_else(|idx| idx);
+        idx % 2 == 1
     }
 
     pub fn last_change(&self) -> u64 {

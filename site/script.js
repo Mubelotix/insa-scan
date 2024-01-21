@@ -1,14 +1,17 @@
-const DATA_COUNT = 12;
+const DATA_COUNT = 7*24;
+const last_generated = /*BEGIN-LAST-GENERATED*/new Date().getTime()/*END-LAST-GENERATED*/;
 const labels = [];
-for (let i = 0; i < DATA_COUNT; ++i) {
-    labels.push(i.toString());
+for (let d = DATA_COUNT; d >= 0; d--) {
+    let date2 = new Date(last_generated - d * 3600 * 1000);
+    let date_fmt_french = date2.toLocaleDateString('fr-FR', {weekday: 'short', hour: '2-digit'});
+    labels.push(date_fmt_french);
 }
-const datapoints = [0, 20, 20, 60, 60, 120, 20, 180, 120, 125, 105, 110, 170];
+const datapoints = [/*BEGIN-DATAPOINTS*/0, 20, 20, 60, 60, 120, 20, 180, 120, 125, 105, 110, 170/*END-DATAPOINTS*/];
 const data = {
     labels: labels,
     datasets: [
         {
-            label: 'Reachable computers',
+            label: 'Machines accessibles',
             data: datapoints,
             borderColor: '#DC6ACF',
             fill: false,
@@ -28,7 +31,8 @@ const config = {
                 font: {
                     size: 20
                 },
-                text: 'Statistics over the last 30 days',
+                text: 'Statistiques des 7 derniers jours',
+                color: 'white'
             },
         },
         interaction: {
@@ -41,7 +45,7 @@ const config = {
             y: {
                 display: true,
                 suggestedMin: 0,
-                suggestedMax: 200
+                suggestedMax: /*BEGIN-MAX-UP-COUNT*/200/*END-MAX-UP-COUNT*/
             }
         }
     },

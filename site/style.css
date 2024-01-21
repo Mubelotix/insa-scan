@@ -273,6 +273,17 @@ footer>img {
     }
 }
 
+@media all and (max-width: 500px) {
+    main {
+        width: 100%;
+        padding: 2rem 0 0 0;
+    }
+
+    th:nth-child(3), td:nth-child(3) {
+        display: none;
+    }
+}
+
 /* Scrollbar */
 
 body::-webkit-scrollbar {
