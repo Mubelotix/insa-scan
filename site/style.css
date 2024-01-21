@@ -252,6 +252,26 @@ footer>img {
     margin: 0 2.5rem 0 .2rem;
 }
 
+/* Mobile */
+
+@media all and (max-width: 1000px) {
+    main {
+        width: 80%;
+        padding: 2rem 10% 0 10%;
+    }
+}
+
+@media all and (max-width: 750px) {
+    main {
+        width: 96%;
+        padding: 2rem 2% 0 2%;
+    }
+
+    th:nth-child(7), td:nth-child(7) {
+        display: none;
+    }
+}
+
 /* Scrollbar */
 
 body::-webkit-scrollbar {
