@@ -200,6 +200,7 @@ th>div {
     display: flex;
     flex-direction: row;
     align-items: center;
+    justify-content: center;
 }
 
 th>div>img {
@@ -218,14 +219,9 @@ td {
     font-size: .9rem;
 }
 
-tr:nth-child(odd) td {
-    background-color: var(--background-300);
-    border-right: 2px solid var(--background-400);
-}
-
-tr:nth-child(even) td, tr th {
+td {
     background-color: var(--background-200);
-    border-right: 2px solid var(--background-400);
+    border-top: 2px solid var(--background-300);
 }
 
 td:last-child, th:last-child {
@@ -241,8 +237,7 @@ tr:last-child > td:last-child {
 }
 
 tr:has(td:hover) td, th:hover {
-    background-color: var(--background-400) !important;
-    border-color: var(--background-500) !important;
+    background-color: var(--background-300) !important;
 }
 
 /* Footer */
