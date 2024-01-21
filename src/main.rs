@@ -54,13 +54,13 @@ fn now_utc() -> u64 {
 }
 
 async fn restore_state(data_dir: &str) -> States {
-    let file = match tokio::fs::read_to_string(format!("{data_dir}/states.bin")).await {
+    let file: Vec<u8> = match tokio::fs::read(format!("{data_dir}/states.bin")).await {
         Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return States::new(),
         Err(e) => panic!("Failed to open states.bin: {}", e),
     };
 
-    bincode::deserialize_from(file.as_bytes()).expect("Failed to deserialize states.bin")
+    bincode::deserialize_from(file.as_slice()).expect("Failed to deserialize states.bin")
 }
 
 async fn save_states(states: &States, data_dir: &str) {
@@ -125,6 +125,7 @@ async fn update(states: &mut States, data_dir: &str) {
         if (i % 500) == 0 {
             update_stats(&states, data_dir).await;
             save_states(&states, data_dir).await;
+            update_site(&states).await;
             print_progress_bar_info("Updated", "Stats have been updated", Color::Green, Style::Bold)
         }
         i += 1;
@@ -139,7 +140,7 @@ async fn update_stats(states: &States, data_dir: &str) {
     for (ip, state) in states {
         let last_change_utc = state.last_change();
         let last_checked_utc = state.last_checked();
-        let (up, uptime, downtime) = state.times_since(now_utc - 30*86400);
+        let (up, uptime, downtime) = state.times_since(now_utc - 30*86400, now_utc);
         if uptime == 0 && !up {
             continue;
         }
@@ -160,6 +161,88 @@ async fn update_stats(states: &States, data_dir: &str) {
         .expect("Failed to open stats.csv");
     file.write_all(b"ip,up,uptime,downtime,last_change_utc,last_checked_utc,hostname,cpu,mem_kB,swap_kB,mac\n").await.expect("Failed to write to stats.csv");
     file.write_all(lines.join("\n").as_bytes()).await.expect("Failed to write to stats.csv");
+}
+
+fn format_duration(seconds: u64) -> String {
+    if seconds > 86400*2 {
+        return format!("{} jours", seconds / 86400);
+    } else if seconds > 3600*2 {
+        return format!("{} heures", seconds / 3600);
+    } else if seconds > 60*2 {
+        return format!("{} minutes", seconds / 60);
+    } else if seconds > 1 {
+        return format!("{} secondes", seconds);
+    } else {
+        return format!("{} seconde", seconds);
+    }
+}
+
+async fn update_site(states: &States) {
+    let rooms = [("lin-2d", "Serveurs"), ("", "Inconnu")];
+
+    let now_utc = now_utc();
+    let mut per_room = HashMap::new();
+    for (ip, state) in states {
+        let (_, uptime, _) = state.times_since(now_utc - 30*86400, now_utc);
+        if uptime > 0 {
+            let hostname = state.extended_info.as_ref().map(|info| info.hostname.as_str()).unwrap_or("");
+            let mut room = "Inconnu";
+            for (prefix, r) in rooms {
+                if hostname.starts_with(prefix) {
+                    room = r;
+                    break;
+                }
+            }
+            per_room.entry(room).or_insert_with(Vec::new).push((ip, state));
+        }
+    }
+
+    let mut pattern = include_str!("../site/pattern.html").to_string();
+    let room_pattern = get_all_between_strict(&pattern, "<!--BEGIN-ROOM-->", "<!--END-ROOM-->").unwrap().to_string();
+    let row_pattern = get_all_between_strict(&room_pattern, "<!--BEGIN-ROW-->", "<!--END-ROW-->").unwrap().to_string();
+    let mut rooms_final = String::new();
+    for (room, computers) in per_room {
+        let mut room_final = room_pattern.clone();
+        room_final = room_final.replace("[ROOM-NAME]", room);
+
+        let mut up_count = 0;
+        let mut rows_final = String::new();
+        for (ip, state) in &computers {
+            let mut row_final = row_pattern.clone();
+            let (up, uptime, downtime) = state.times_since(now_utc - 30*86400, now_utc);
+            if up {
+                up_count += 1;
+            }
+            let hostname = state.extended_info.as_ref().map(|info| info.hostname.clone()).unwrap_or(ip.to_string());
+            let up = match up {
+                true => "up",
+                false => "down",
+            };
+            let duration_value = now_utc - state.last_change();
+            let duration = format_duration(duration_value);
+            let reliability = format!("{:.2}%", uptime as f64 / (uptime + downtime) as f64 * 100.0);
+            let cpu = state.extended_info.as_ref().and_then(|info| info.cpu()).unwrap_or("unknown");
+            let mem = state.extended_info.as_ref().and_then(|info| info.mem()).unwrap_or("unknown");
+            let mem_swap = "unknwon";
+            row_final = row_final.replace("[ROW-HOSTNAME]", &hostname);
+            row_final = row_final.replace("[ROW-UP]", up);
+            row_final = row_final.replace("[ROW-DURATION]", &duration);
+            row_final = row_final.replace("[ROW-DURATION-VALUE]", &duration_value.to_string());
+            row_final = row_final.replace("[ROW-RELIABILITY]", &reliability);
+            row_final = row_final.replace("[ROW-CPU]", &cpu);
+            row_final = row_final.replace("[ROW-MEM]", &mem);
+            row_final = row_final.replace("[ROW-MEM-SWAP]", &mem_swap);
+            rows_final.push_str(&row_final);
+        }
+        room_final = room_final.replace(row_pattern.as_str(), &rows_final);
+        room_final = room_final.replace("[ROOM-UP-COUNT]", &up_count.to_string());
+        room_final = room_final.replace("[ROOM-COMPUTER-COUNT]", &computers.len().to_string());
+
+        rooms_final.push_str(&room_final);
+    }
+    pattern = pattern.replace(&room_pattern, &rooms_final);
+
+    std::fs::write("site/index.html", pattern).expect("Failed to write site/index.html");
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -220,7 +303,7 @@ impl MachineState {
         self.last_checked
     }
 
-    pub fn times_since(&self, since: u64) -> (bool, u64, u64) {
+    pub fn times_since(&self, since: u64, now_utc: u64) -> (bool, u64, u64) {
         if self.changes.is_empty() {
             return (false, 0, 0);
         }
@@ -238,6 +321,11 @@ impl MachineState {
             } else {
                 downtime += segment;
             }
+        }
+        if up {
+            uptime += now_utc - std::cmp::max(self.last_change(), since);
+        } else {
+            downtime += now_utc - std::cmp::max(self.last_change(), since);
         }
         (up, uptime, downtime)
     }
