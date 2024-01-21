@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
-use std::str::FromStr;
 use std::time::{Instant, Duration};
 use futures::future::select_all;
 use string_tools::{get_all_before_strict, get_all_after_strict, get_all_between_strict};
@@ -205,7 +204,10 @@ async fn update_site(states: &States) {
         let mut room_final = room_pattern.clone();
         room_final = room_final.replace("[ROOM-NAME]", room);
 
+        // Rows
         let mut up_count = 0;
+        let mut highest_up_duration = 0;
+        let mut lowest_down_duration = u64::MAX;
         let mut rows_final = String::new();
         for (ip, state) in &computers {
             let mut row_final = row_pattern.clone();
@@ -213,14 +215,34 @@ async fn update_site(states: &States) {
             if up {
                 up_count += 1;
             }
+
+            // Hostname
             let hostname = state.extended_info.as_ref().map(|info| info.hostname.clone()).unwrap_or(ip.to_string());
-            let up = match up {
+            row_final = row_final.replace("[ROW-HOSTNAME]", &hostname);
+
+            // Up
+            let up_fmt = match up {
                 true => "up",
                 false => "down",
             };
-            let duration_value = now_utc - state.last_change();
-            let duration = format_duration(duration_value);
+            row_final = row_final.replace("[ROW-UP]", up_fmt);
+
+            // Duration
+            let duration = now_utc - state.last_change();
+            let duration_fmt = format_duration(duration);
+            row_final = row_final.replace("[ROW-DURATION]", &duration_fmt);
+            row_final = row_final.replace("[ROW-DURATION-VALUE]", &duration.to_string());
+            if up && duration > highest_up_duration {
+                highest_up_duration = duration;
+            } else if !up && duration < lowest_down_duration {
+                lowest_down_duration = duration;
+            }
+
+            // Reliability
             let reliability = format!("{:.2}%", uptime as f64 / (uptime + downtime) as f64 * 100.0);
+            row_final = row_final.replace("[ROW-RELIABILITY]", &reliability);
+
+            // System info
             let cpu = state.extended_info.as_ref().and_then(|info| info.cpu()).unwrap_or("unknown");
             let ram_value = state.extended_info.as_ref().and_then(|info| info.ram()).unwrap_or(0);
             let ram = match ram_value {
@@ -232,21 +254,24 @@ async fn update_site(states: &States) {
                 0 => String::from("unknown"),
                 _ => format!("{:.1} Go", ram_swap_value as f64 / 1_000_000_000.0),
             };
-            row_final = row_final.replace("[ROW-HOSTNAME]", &hostname);
-            row_final = row_final.replace("[ROW-UP]", up);
-            row_final = row_final.replace("[ROW-DURATION]", &duration);
-            row_final = row_final.replace("[ROW-DURATION-VALUE]", &duration_value.to_string());
-            row_final = row_final.replace("[ROW-RELIABILITY]", &reliability);
             row_final = row_final.replace("[ROW-CPU]", &cpu);
             row_final = row_final.replace("[ROW-RAM]", &ram);
             row_final = row_final.replace("[ROW-RAM-VALUE]", &ram_value.to_string());
             row_final = row_final.replace("[ROW-RAM-SWAP]", &mem_swap);
             row_final = row_final.replace("[ROW-RAM-SWAP-VALUE]", &ram_swap_value.to_string());
+
             rows_final.push_str(&row_final);
         }
         room_final = room_final.replace(row_pattern.as_str(), &rows_final);
+
+        // Room info
         room_final = room_final.replace("[ROOM-UP-COUNT]", &up_count.to_string());
         room_final = room_final.replace("[ROOM-COMPUTER-COUNT]", &computers.len().to_string());
+        let duration_fmt = match up_count == 0 {
+            true => format!("Inaccessible depuis {}", format_duration(lowest_down_duration)),
+            false => format!("Disponible depuis {}", format_duration(highest_up_duration)),
+        };
+        room_final = room_final.replace("[ROOM-DURATION]", &duration_fmt);
 
         rooms_final.push_str(&room_final);
     }

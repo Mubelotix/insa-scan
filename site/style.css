@@ -108,7 +108,7 @@ main {
 }
 
 .room-header>.flex-apart>div {
-    width: calc(100% / 3);
+    width: 60%;
 }
 
 .room-name {
@@ -132,6 +132,7 @@ main {
 }
 
 .room-counter {
+    width: 20% !important;
     font-size: 3rem;
     text-align: center;
 }
