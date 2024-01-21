@@ -11,7 +11,7 @@ use serde::{Serialize, Deserialize};
 
 // IPs are updated on an hourly basis
 // The hour is divided into 6 parts.
-// Computers we think are on are checked at each one.
+// Machines we think are on are checked at each one.
 // The rest of them only get checked once every hour.
 
 pub async fn run_shell_command(command: impl AsRef<str>) -> Result<String, String> {
@@ -195,6 +195,7 @@ async fn update_site(states: &States, data_dir: &str) {
             per_room.entry(room).or_insert_with(Vec::new).push((ip, state));
         }
     }
+    let max_machines_per_room = per_room.values().map(|machines| machines.len()).max().unwrap_or(0);
 
     let mut pattern = include_str!("../site/pattern.html").to_string();
 
@@ -212,8 +213,8 @@ async fn update_site(states: &States, data_dir: &str) {
     let mut max_up_count = 0;
     for i in (0..7*24).rev() {
         let time_utc = now_utc - i*3600;
-        let up_count = per_room.values().map(|computers| {
-            computers.iter().filter(|(_, state)| state.up_at(time_utc)).count()
+        let up_count = per_room.values().map(|machines| {
+            machines.iter().filter(|(_, state)| state.up_at(time_utc)).count()
         }).sum::<usize>();
         if up_count > max_up_count {
             max_up_count = up_count;
@@ -226,18 +227,18 @@ async fn update_site(states: &States, data_dir: &str) {
 
     // Rooms
     let room_pattern = get_all_between_strict(&pattern, "<!--BEGIN-ROOM-->", "<!--END-ROOM-->").unwrap().to_string();
+    let machine_pattern = get_all_between_strict(&room_pattern, "<!--BEGIN-MACHINE-->", "<!--END-MACHINE-->").unwrap().to_string();
     let row_pattern = get_all_between_strict(&room_pattern, "<!--BEGIN-ROW-->", "<!--END-ROW-->").unwrap().to_string();
     let mut rooms_final = String::new();
-    for (room, computers) in per_room {
+    for (room, machines) in per_room {
         let mut room_final = room_pattern.clone();
-        room_final = room_final.replace("[ROOM-NAME]", room);
 
         // Rows
         let mut up_count = 0;
         let mut highest_up_duration = 0;
         let mut lowest_down_duration = u64::MAX;
         let mut rows_final = String::new();
-        for (ip, state) in &computers {
+        for (ip, state) in &machines {
             let mut row_final = row_pattern.clone();
             let (up, uptime, downtime) = state.times_since(now_utc - 30*86400, now_utc);
             if up {
@@ -293,13 +294,33 @@ async fn update_site(states: &States, data_dir: &str) {
         room_final = room_final.replace(row_pattern.as_str(), &rows_final);
 
         // Room info
+        room_final = room_final.replace("[ROOM-NAME]", room);
         room_final = room_final.replace("[ROOM-UP-COUNT]", &up_count.to_string());
-        room_final = room_final.replace("[ROOM-COMPUTER-COUNT]", &computers.len().to_string());
+        room_final = room_final.replace("[ROOM-MACHINE-COUNT]", &machines.len().to_string());
         let duration_fmt = match up_count == 0 {
             true => format!("Inaccessible depuis {}", format_duration(lowest_down_duration)),
             false => format!("Disponible depuis {}", format_duration(highest_up_duration)),
         };
         room_final = room_final.replace("[ROOM-DURATION]", &duration_fmt);
+
+        // Machine list
+        let mut machines_final = Vec::new();
+        for (_, state) in &machines {
+            let mut machine_final = machine_pattern.clone();
+            let up = state.up();
+            let state = match up {
+                true => "on",
+                false => "off",
+            };
+            machine_final = machine_final.replace("[MACHINE-STATE]", state);
+            machines_final.push(machine_final);
+        }
+        while machines_final.len() < max_machines_per_room {
+            let mut machine_final = machine_pattern.clone();
+            machine_final = machine_final.replace("[MACHINE-STATE]", "missing");
+            machines_final.push(machine_final);
+        }
+        room_final = room_final.replace(machine_pattern.as_str(), &machines_final.join(""));
 
         rooms_final.push_str(&room_final);
     }
