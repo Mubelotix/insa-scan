@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
 use progress_bar::{global::*, Color, Style};
+use serde::{Serialize, Deserialize};
 
 // IPs are updated on an hourly basis
 // The hour is divided into 6 parts.
@@ -231,7 +232,7 @@ async fn update_stats(states: &States, data_dir: &str) {
     file.write_all(lines.join("\n").as_bytes()).await.expect("Failed to write to stats.csv");
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ExtendedInfo {
     hostname: String,
     cpuinfo: String,
@@ -254,6 +255,63 @@ impl ExtendedInfo {
 
     pub fn mac(&self) -> Option<&str> {
         get_all_between_strict(&self.ipaddr, "    link/ether ", " brd").map(|s| s.trim())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct State2 {
+    /// First item is the time our scanner booted for the first time.
+    /// At this point it's consider down.
+    changes: Vec<u64>,
+    last_checked: u64,
+    pub extended_info: Option<ExtendedInfo>,
+}
+
+impl State2 {
+    pub fn new(now_utc: u64, up: bool) -> Self {
+        match up {
+            true => Self {
+                changes: vec![now_utc, now_utc],
+                last_checked: now_utc,
+                extended_info: None,
+            },
+            false => Self {
+                changes: vec![now_utc],
+                last_checked: now_utc,
+                extended_info: None,
+            },
+        }
+    }
+
+    pub fn up(&self) -> bool {
+        self.changes.len() % 2 == 0
+    }
+
+    pub fn last_change(&self) -> u64 {
+        *self.changes.last().unwrap()
+    }
+
+    pub fn last_checked(&self) -> u64 {
+        self.last_checked
+    }
+
+    pub fn times_since(&self, since: u64) -> (bool, u64, u64) {
+        let mut uptime = 0;
+        let mut downtime = 0;
+        let mut up = true;
+        for i in 1..self.changes.len() {
+            up = !up;
+            if self.changes[i] < since {
+                continue;
+            }
+            let segment = self.changes[i] - std::cmp::max(self.changes[i-1], since);
+            if up {
+                uptime += segment;
+            } else {
+                downtime += segment;
+            }
+        }
+        (up, uptime, downtime)
     }
 }
 
