@@ -146,8 +146,8 @@ async fn update_stats(states: &States, data_dir: &str) {
         }
         let hostname = state.extended_info.as_ref().map(|info| info.hostname.as_str()).unwrap_or("");
         let cpu = state.extended_info.as_ref().and_then(|info| info.cpu()).unwrap_or("");
-        let mem = state.extended_info.as_ref().and_then(|info| info.mem()).unwrap_or("");
-        let swap = state.extended_info.as_ref().and_then(|info| info.swap()).unwrap_or("");
+        let mem = state.extended_info.as_ref().and_then(|info| info.ram()).unwrap_or(0);
+        let swap = state.extended_info.as_ref().and_then(|info| info.swap()).unwrap_or(0);
         let mac = state.extended_info.as_ref().and_then(|info| info.mac()).unwrap_or("");
         lines.push(format!("{ip},{up},{uptime},{downtime},{last_change_utc},{last_checked_utc},{hostname},{cpu},{mem},{swap},{mac}"));
     }
@@ -222,16 +222,26 @@ async fn update_site(states: &States) {
             let duration = format_duration(duration_value);
             let reliability = format!("{:.2}%", uptime as f64 / (uptime + downtime) as f64 * 100.0);
             let cpu = state.extended_info.as_ref().and_then(|info| info.cpu()).unwrap_or("unknown");
-            let mem = state.extended_info.as_ref().and_then(|info| info.mem()).unwrap_or("unknown");
-            let mem_swap = "unknwon";
+            let ram_value = state.extended_info.as_ref().and_then(|info| info.ram()).unwrap_or(0);
+            let ram = match ram_value {
+                0 => String::from("unknown"),
+                _ => format!("{:.1} Go", ram_value as f64 / 1_000_000_000.0),
+            };
+            let ram_swap_value = ram_value + state.extended_info.as_ref().and_then(|info| info.swap()).unwrap_or(0);
+            let mem_swap = match ram_swap_value {
+                0 => String::from("unknown"),
+                _ => format!("{:.1} Go", ram_swap_value as f64 / 1_000_000_000.0),
+            };
             row_final = row_final.replace("[ROW-HOSTNAME]", &hostname);
             row_final = row_final.replace("[ROW-UP]", up);
             row_final = row_final.replace("[ROW-DURATION]", &duration);
             row_final = row_final.replace("[ROW-DURATION-VALUE]", &duration_value.to_string());
             row_final = row_final.replace("[ROW-RELIABILITY]", &reliability);
             row_final = row_final.replace("[ROW-CPU]", &cpu);
-            row_final = row_final.replace("[ROW-MEM]", &mem);
-            row_final = row_final.replace("[ROW-MEM-SWAP]", &mem_swap);
+            row_final = row_final.replace("[ROW-RAM]", &ram);
+            row_final = row_final.replace("[ROW-RAM-VALUE]", &ram_value.to_string());
+            row_final = row_final.replace("[ROW-RAM-SWAP]", &mem_swap);
+            row_final = row_final.replace("[ROW-RAM-SWAP-VALUE]", &ram_swap_value.to_string());
             rows_final.push_str(&row_final);
         }
         room_final = room_final.replace(row_pattern.as_str(), &rows_final);
@@ -258,12 +268,12 @@ impl ExtendedInfo {
         get_all_between_strict(&self.cpuinfo, "model name	: ", "\n")
     }
 
-    pub fn mem(&self) -> Option<&str> {
-        get_all_between_strict(&self.meminfo, "MemTotal:", " kB").map(|s| s.trim())
+    pub fn ram(&self) -> Option<u64> {
+        get_all_between_strict(&self.meminfo, "MemTotal:", " kB").and_then(|s| s.trim().parse().ok()).map(|s: u64| s * 1000)
     }
 
-    pub fn swap(&self) -> Option<&str> {
-        get_all_between_strict(&self.meminfo, "SwapTotal:", " kB").map(|s| s.trim())
+    pub fn swap(&self) -> Option<u64> {
+        get_all_between_strict(&self.meminfo, "SwapTotal:", " kB").and_then(|s| s.trim().parse().ok()).map(|s: u64| s * 1000)
     }
 
     pub fn mac(&self) -> Option<&str> {
