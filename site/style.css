@@ -41,6 +41,8 @@ body {
     overflow: hidden auto;
 }
 
+/* Summary */
+
 #summary-head {
     margin-bottom: 2rem;
 }
@@ -62,6 +64,8 @@ body {
     border-radius: 1rem;
     border: 2px solid var(--background-300);
 }
+
+/* Room header */
 
 .room {
     background-color: var(--background-200);
@@ -115,6 +119,8 @@ body {
     text-align: right;
 }
 
+/* Room computer list */
+
 .room-computer-list {
     display: flex;
     flex-direction: row;
@@ -139,6 +145,8 @@ body {
 .room-computer-missing {
     background-color: var(--background-400);
 }
+
+/* Table */
 
 table {
     border-spacing: 0;
