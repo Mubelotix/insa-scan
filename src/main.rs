@@ -47,17 +47,6 @@ fn generate_ips() -> HashSet<Ipv4Addr> {
     ips
 }
 
-#[derive(Default)]
-struct MachineState {
-    last_checked_utc: Option<u64>,
-    up: Option<bool>,
-
-    extended_info: Option<ExtendedInfo>,
-    last_change_utc: Option<u64>,
-    uptime: u64,
-    downtime: u64,
-}
-
 type States = HashMap<Ipv4Addr, MachineState>;
 
 fn now_utc() -> u64 {
@@ -65,60 +54,18 @@ fn now_utc() -> u64 {
 }
 
 async fn restore_state(data_dir: &str) -> States {
-    let file = tokio::fs::read_to_string(format!("{data_dir}/history.csv")).await.expect("Failed to read history.csv");
-    let now_utc = now_utc();
+    let file = match tokio::fs::read_to_string(format!("{data_dir}/states.bin")).await {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return States::new(),
+        Err(e) => panic!("Failed to open states.bin: {}", e),
+    };
 
-    let mut states = States::new();
-    for (i, line) in file.lines().enumerate() {
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() != 3 {
-            eprintln!("Error line {i}: Wrong number of parts");
-            continue;
-        }
-        let Ok(last_checked_utc) = parts[2].parse() else {
-            eprintln!("Error line {i}: Invalid last checked");
-            continue;
-        };
-        if last_checked_utc + 30 * 86_400 < now_utc {  // Too old
-            continue;
-        }
-        let Ok(ip) = Ipv4Addr::from_str(parts[0]) else { 
-            eprintln!("Error line {i}: Invalid IP");
-            continue;
-        };
-        let Ok(up) = parts[1].parse() else {
-            eprintln!("Error line {i}: Invalid up");
-            continue;
-        };
-        let state = states.entry(ip).or_default();
-        match (state.up, up) {
-            (Some(true), true) => state.uptime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc),
-            (Some(false), false) => state.downtime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc),
-            (Some(false), true) | (None, true) => {
-                state.downtime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc);
-                state.last_change_utc = Some(last_checked_utc);
-            },
-            (Some(true), false) | (None, false) => {
-                state.uptime += last_checked_utc - state.last_checked_utc.unwrap_or(last_checked_utc);
-                state.last_change_utc = Some(last_checked_utc);
-            },
-        }
-        state.last_checked_utc = Some(last_checked_utc);
-        state.up = Some(up);
-    }
-
-    states
+    bincode::deserialize_from(file.as_bytes()).expect("Failed to deserialize states.bin")
 }
 
-async fn save_state(ip: Ipv4Addr, up: bool, now_utc: u64, data_dir: &str) {
-    let mut file = tokio::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(format!("{data_dir}/history.csv"))
-        .await
-        .expect("Failed to open history.csv");
-    let line = format!("{},{},{}\n", ip, up, now_utc);
-    file.write_all(line.as_bytes()).await.expect("Failed to write to history.csv");
+async fn save_states(states: &States, data_dir: &str) {
+    let file = bincode::serialize(states).expect("Failed to serialize states");
+    tokio::fs::write(format!("{data_dir}/states.bin"), file).await.expect("Failed to write states.bin");
 }
 
 async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
@@ -142,7 +89,7 @@ async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str) -> (Ipv4Addr, bool
 
 async fn update(states: &mut States, data_dir: &str) {
     let mut candidates: Vec<(Ipv4Addr, bool, u64)> = states.iter().map(|(ip, state)| {
-        (*ip, state.up.unwrap_or(false), state.last_checked_utc.unwrap_or(0))
+        (*ip, state.up(), state.last_checked())
     }).collect();
     candidates.sort_by(|(_, up1, t1), (_, up2, t2)| {
         up1.cmp(up2).reverse().then(t1.cmp(t2))
@@ -154,7 +101,7 @@ async fn update(states: &mut States, data_dir: &str) {
     let mut tasks = Vec::new();
     for _ in 0..200 {
         let Some(ip) = candidates.pop() else { break };
-        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().up.unwrap_or(false), data_dir)));
+        tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().up(), data_dir)));
     }
 
     let mut i = 0;
@@ -162,7 +109,7 @@ async fn update(states: &mut States, data_dir: &str) {
         let ((ip, up, extended_info), _, new_tasks) = select_all(tasks).await;
         tasks = new_tasks;
         if let Some(ip) = candidates.pop() {
-            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().up.unwrap_or(false), data_dir)));
+            tasks.push(Box::pin(check_ip(ip.0, states.get(&ip.0).unwrap().up(), data_dir)));
         }
         let now_utc = now_utc();
         let state = states.entry(ip).or_default();
@@ -174,25 +121,10 @@ async fn update(states: &mut States, data_dir: &str) {
             },
             None => (),
         }
-        match (state.up, up) {
-            (Some(true), true) => state.uptime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
-            (Some(false), false) => state.downtime += now_utc - state.last_checked_utc.unwrap_or(now_utc),
-            (Some(false), true) | (None, true) => {
-                state.downtime += now_utc - state.last_checked_utc.unwrap_or(now_utc);
-                state.last_change_utc = Some(now_utc);
-            },
-            (Some(true), false) | (None, false) => {
-                state.uptime += now_utc - state.last_checked_utc.unwrap_or(now_utc);
-                state.last_change_utc = Some(now_utc);
-            },
-        }
-        state.last_checked_utc = Some(now_utc);
-        if state.up != Some(up) {
-            save_state(ip, up, now_utc, data_dir).await;
-        }
-        state.up = Some(up);
+        state.checked(up, now_utc);
         if (i % 500) == 0 {
             update_stats(&states, data_dir).await;
+            save_states(&states, data_dir).await;
             print_progress_bar_info("Updated", "Stats have been updated", Color::Green, Style::Bold)
         }
         i += 1;
@@ -205,11 +137,9 @@ async fn update_stats(states: &States, data_dir: &str) {
     let now_utc = now_utc();
     let mut lines = Vec::new();
     for (ip, state) in states {
-        let up = state.up.unwrap_or(false);
-        let last_change_utc = state.last_change_utc.unwrap_or(0);
-        let last_checked_utc = state.last_checked_utc.unwrap_or(0);
-        let uptime = state.uptime;
-        let downtime = state.downtime;
+        let last_change_utc = state.last_change();
+        let last_checked_utc = state.last_checked();
+        let (up, uptime, downtime) = state.times_since(now_utc - 30*86400);
         if uptime == 0 && !up {
             continue;
         }
@@ -258,37 +188,32 @@ impl ExtendedInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct State2 {
-    /// First item is the time our scanner booted for the first time.
-    /// At this point it's consider down.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct MachineState {
+    /// First item is the time it was scanned the first time
+    /// At this point it's considered up
     changes: Vec<u64>,
     last_checked: u64,
     pub extended_info: Option<ExtendedInfo>,
 }
 
-impl State2 {
-    pub fn new(now_utc: u64, up: bool) -> Self {
-        match up {
-            true => Self {
-                changes: vec![now_utc, now_utc],
-                last_checked: now_utc,
-                extended_info: None,
-            },
-            false => Self {
-                changes: vec![now_utc],
-                last_checked: now_utc,
-                extended_info: None,
-            },
+impl MachineState {
+    pub fn checked(&mut self, up: bool, now_utc: u64) {
+        if up != self.up() {
+            self.changes.push(now_utc);
+        } else if !up && self.changes.is_empty() {
+            self.changes.push(now_utc);
+            self.changes.push(now_utc);
         }
+        self.last_checked = now_utc;
     }
 
     pub fn up(&self) -> bool {
-        self.changes.len() % 2 == 0
+        self.changes.len() % 2 == 1
     }
 
     pub fn last_change(&self) -> u64 {
-        *self.changes.last().unwrap()
+        self.changes.last().copied().unwrap_or_else(|| now_utc())
     }
 
     pub fn last_checked(&self) -> u64 {
@@ -296,6 +221,9 @@ impl State2 {
     }
 
     pub fn times_since(&self, since: u64) -> (bool, u64, u64) {
+        if self.changes.is_empty() {
+            return (false, 0, 0);
+        }
         let mut uptime = 0;
         let mut downtime = 0;
         let mut up = true;
