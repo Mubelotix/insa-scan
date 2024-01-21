@@ -196,6 +196,24 @@ th {
     cursor: pointer;
 }
 
+th>div {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+th>div>img {
+    display: none;
+}
+
+th[data-sorted-direction="ascending"]>div>img[src="arrow_drop_up.svg"] {
+    display: block;
+}
+
+th[data-sorted-direction="descending"]>div>img[src="arrow_drop_down.svg"] {
+    display: block;
+}
+
 td {
     font-size: .9rem;
 }
