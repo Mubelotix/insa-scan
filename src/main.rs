@@ -177,7 +177,7 @@ fn format_duration(seconds: u64) -> String {
 }
 
 async fn update_site(states: &States, data_dir: &str) {
-    let rooms = [("lin-2d", "Serveurs"), ("", "Inconnu")];
+    let rooms = [("lin-2d", "Serveurs"), ("iti-mahr215-", "Ma-H-R2-15"), ("iti-mahr213-", "Ma-H-R2-13"), ("perf-", "PERF"), ("ep-", "EP"), ("", "Inconnu")];
 
     let now_utc = now_utc();
     let mut per_room = HashMap::new();
