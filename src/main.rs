@@ -180,10 +180,16 @@ async fn update_site(states: &States, data_dir: &str) {
     let rooms = [("lin-2d", "Machines virtuelles"), ("stpi-aio-", "STPI"), ("boar205-", "Bo-A-R2-05	"), ("mahr207-", "Ma-H-R2-07"), ("mahr209-", "Ma-H-R2-09"), ("iti-mahr211-", "Ma-H-R2-11"), ("iti-mahr213-", "Ma-H-R2-13"), ("iti-mahr215-", "Ma-H-R2-15"), ("perf-", "PERF"), ("ep-", "EP"), ("", "Inconnu")];
 
     let now_utc = now_utc();
+    let mut total_up_count = 0;
+    let mut total_machine_count = 0;
     let mut per_room = HashMap::new();
     for (ip, state) in states {
-        let (_, uptime, _) = state.times_since(now_utc - 30*86400, now_utc);
+        let (up, uptime, _) = state.times_since(now_utc - 30*86400, now_utc);
+        if up {
+            total_up_count += 1;
+        }
         if uptime > 0 {
+            total_machine_count += 1;
             let hostname = state.extended_info.as_ref().map(|info| info.hostname.as_str()).unwrap_or("");
             let mut room = "Inconnu";
             for (prefix, r) in rooms {
@@ -198,6 +204,14 @@ async fn update_site(states: &States, data_dir: &str) {
     let max_machines_per_room = per_room.values().map(|machines| machines.len()).max().unwrap_or(0);
 
     let mut pattern = include_str!("../site/pattern.html").to_string();
+
+    // Summary
+    let summary = match (total_up_count, total_machine_count) {
+        (_, 0) => String::from("Aucune machine n'est disponible"),
+        (0, _) => String::from("Toutes les machines sont inaccessibles"),
+        (_, _) => format!("{total_up_count} machines sont disponibles sur {total_machine_count} ({:.2}%)", total_up_count as f64 / total_machine_count as f64 * 100.0),
+    };
+    pattern = pattern.replace("[SUMMARY-MESSAGE]", &summary);
 
     // Inline external JS and CSS
     let script = std::fs::read_to_string(format!("{}/site/script.js", data_dir)).expect("Failed to read script.js");
