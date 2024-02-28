@@ -16,11 +16,11 @@ sudo docker build -t insa-scan:0.1.0 .
 ## Running
 
 ```bash
-sudo docker run
-    --name insa-scan
-    -v $(pwd):/data
-    -e INSA_USERNAME='username'
-    -e INSA_PASSWORD='password'
-    --cap-add=NET_ADMIN
+sudo docker run \
+    --name insa-scan \
+    -v $(pwd):/data \
+    -e INSA_USERNAME='username' \
+    -e INSA_PASSWORD='password' \
+    --cap-add=NET_ADMIN \
     insa-scan:0.1.0
 ```
