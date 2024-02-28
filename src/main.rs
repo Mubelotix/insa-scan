@@ -122,9 +122,9 @@ async fn update(states: &mut States, data_dir: &str, username : &str) {
         }
         state.checked(up, now_utc);
         if (i % 500) == 0 {
-            update_stats(&states, data_dir).await;
-            save_states(&states, data_dir).await;
-            update_site(&states, data_dir).await;
+            update_stats(states, data_dir).await;
+            save_states(states, data_dir).await;
+            update_site(states, data_dir).await;
             print_progress_bar_info("Updated", "Stats have been updated", Color::Green, Style::Bold)
         }
         i += 1;
@@ -164,15 +164,15 @@ async fn update_stats(states: &States, data_dir: &str) {
 
 fn format_duration(seconds: u64) -> String {
     if seconds > 86400*2 {
-        return format!("{} jours", seconds / 86400);
+        format!("{} jours", seconds / 86400)
     } else if seconds > 3600*2 {
-        return format!("{} heures", seconds / 3600);
+        format!("{} heures", seconds / 3600)
     } else if seconds > 60*2 {
-        return format!("{} minutes", seconds / 60);
+        format!("{} minutes", seconds / 60)
     } else if seconds > 1 {
-        return format!("{} secondes", seconds);
+        format!("{} secondes", seconds)
     } else {
-        return format!("{} seconde", seconds);
+        format!("{} seconde", seconds)
     }
 }
 
@@ -297,7 +297,7 @@ async fn update_site(states: &States, data_dir: &str) {
                 0 => String::from("unknown"),
                 _ => format!("{:.1} Go", ram_swap_value as f64 / 1_000_000_000.0),
             };
-            row_final = row_final.replace("[ROW-CPU]", &cpu);
+            row_final = row_final.replace("[ROW-CPU]", cpu);
             row_final = row_final.replace("[ROW-RAM]", &ram);
             row_final = row_final.replace("[ROW-RAM-VALUE]", &ram_value.to_string());
             row_final = row_final.replace("[ROW-RAM-SWAP]", &mem_swap);
@@ -399,7 +399,7 @@ impl MachineState {
     }
 
     pub fn last_change(&self) -> u64 {
-        self.changes.last().copied().unwrap_or_else(|| now_utc())
+        self.changes.last().copied().unwrap_or_else(|| {now_utc()})
     }
 
     pub fn last_checked(&self) -> u64 {
@@ -446,11 +446,11 @@ async fn load_extented_info(ip: Ipv4Addr, data_dir: &str, username : &str) -> Re
     
     let inner = |data: &str| -> Option<ExtendedInfo> {
         let hostname = get_all_before_strict(data, "MUBELOTIX-SEPARATOR")?;
-        let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
-        let cpuinfo = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
-        let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
-        let meminfo = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
-        let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let data = get_all_after_strict(data, "MUBELOTIX-SEPARATOR")?;
+        let cpuinfo = get_all_before_strict(data, "MUBELOTIX-SEPARATOR")?;
+        let data = get_all_after_strict(data, "MUBELOTIX-SEPARATOR")?;
+        let meminfo = get_all_before_strict(data, "MUBELOTIX-SEPARATOR")?;
+        let data = get_all_after_strict(data, "MUBELOTIX-SEPARATOR")?;
         let ipaddr = data;
         Some(ExtendedInfo {
             hostname: hostname.trim().replace(',', " "),
