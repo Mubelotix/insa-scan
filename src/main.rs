@@ -445,7 +445,7 @@ async fn load_extented_info(ip: Ipv4Addr, data_dir: &str, username : &str) -> Re
     };
     
     let inner = |data: &str| -> Option<ExtendedInfo> {
-        let hostname = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
+        let hostname = get_all_before_strict(data, "MUBELOTIX-SEPARATOR")?;
         let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
         let cpuinfo = get_all_before_strict(&data, "MUBELOTIX-SEPARATOR")?;
         let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
@@ -453,10 +453,10 @@ async fn load_extented_info(ip: Ipv4Addr, data_dir: &str, username : &str) -> Re
         let data = get_all_after_strict(&data, "MUBELOTIX-SEPARATOR")?;
         let ipaddr = data;
         Some(ExtendedInfo {
-            hostname: hostname.trim().replace(",", " "),
-            cpuinfo: cpuinfo.trim().replace(",", " "),
-            meminfo: meminfo.trim().replace(",", " "),
-            ipaddr: ipaddr.trim().replace(",", " "),
+            hostname: hostname.trim().replace(',', " "),
+            cpuinfo: cpuinfo.trim().replace(',', " "),
+            meminfo: meminfo.trim().replace(',', " "),
+            ipaddr: ipaddr.trim().replace(',', " "),
         })
     };
 
