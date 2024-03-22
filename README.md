@@ -10,17 +10,17 @@ This project is able to track uptime statistics, along with CPU and memory chara
 
 ```bash
 cargo build --release
-sudo docker build -t network-scanner:0.1.0 .
+sudo docker build -t insa-scan:0.1.0 .
 ```
 
 ## Running
 
 ```bash
-sudo docker run
-    --name network-scanner
-    -v $(pwd):/data
-    -e INSA_USERNAME='username'
-    -e INSA_PASSWORD='password'
-    --cap-add=NET_ADMIN
-    network-scanner:0.1.0
+sudo docker run \
+    --name insa-scan \
+    -v $(pwd):/data \
+    -e INSA_USERNAME='username' \
+    -e INSA_PASSWORD='password' \
+    --cap-add=NET_ADMIN \
+    insa-scan:0.1.0
 ```
