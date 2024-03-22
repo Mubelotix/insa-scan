@@ -18,4 +18,6 @@ if ! pgrep -x "openvpn" > /dev/null; then
 fi
 
 echo "Starting program"
+cd /data
+ls
 /insa-scan
