@@ -16,7 +16,8 @@ ENV INSA_USERNAME= \
 
 COPY docker-files/insa-ovpn-tun-ca.ovpn /insa-ovpn-tun-ca.ovpn
 COPY docker-files/bootstrap.sh /bootstrap.sh
+COPY site/ /site/
 RUN chmod +x /bootstrap.sh
-COPY target/release/network-scanner /network-scanner
+COPY target/release/insa-scan /insa-scan
 
 CMD [ "sh", "-c", "sh /bootstrap.sh" ]
