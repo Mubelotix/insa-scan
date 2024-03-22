@@ -10,7 +10,13 @@ This project is able to track uptime statistics, along with CPU and memory chara
 
 ```bash
 cargo build --release
-sudo docker build -t insa-scan:0.1.0 .
+sudo docker build -t mubelotix/insa-scan:0.1.1 .
+```
+
+## Deploying
+
+```bash
+sudo docker push mubelotix/insa-scan:0.1.1
 ```
 
 ## Running
@@ -22,5 +28,5 @@ sudo docker run \
     -e INSA_USERNAME='username' \
     -e INSA_PASSWORD='password' \
     --cap-add=NET_ADMIN \
-    insa-scan:0.1.0
+    mubelotix/insa-scan:0.1.1
 ```
