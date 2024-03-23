@@ -67,7 +67,7 @@ async fn save_states(states: &States, data_dir: &str) {
     tokio::fs::write(format!("{data_dir}/states.bin"), file).await.expect("Failed to write states.bin");
 }
 
-async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str, username : &str) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
+async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str, username: &Option<String>) -> (Ipv4Addr, bool, Option<Result<ExtendedInfo, String>>) {
     let time_to_wait = match was_up {
         true => Duration::from_secs(12),
         false => Duration::from_secs(4),
@@ -79,14 +79,18 @@ async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str, username : &str) -
     }).await;
     let up = r == Ok(true);
     let extended_info = if !was_up && up {
-        Some(load_extented_info(ip, data_dir, username).await)
+        if let Some(username) = username {
+            Some(load_extented_info(ip, data_dir, username).await)
+        } else {
+            None
+        }
     } else {
         None
     };
     (ip, up, extended_info)
 }
 
-async fn update(states: &mut States, data_dir: &str, username : &str) {
+async fn update(states: &mut States, data_dir: &str, username: &Option<String>) {
     let mut candidates: Vec<(Ipv4Addr, bool, u64)> = states.iter().map(|(ip, state)| {
         (*ip, state.up(), state.last_checked())
     }).collect();
@@ -485,7 +489,11 @@ async fn load_extented_info(ip: Ipv4Addr, data_dir: &str, username : &str) -> Re
 #[tokio::main]
 async fn main() {
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| String::from("."));
-    let username = std::env::var("INSA_USERNAME").expect("INSA_USERNAME is not set");
+    let username = std::env::var("INSA_USERNAME").ok();
+
+    if username.is_none() {
+        eprintln!("INSA_USERNAME is not set. Extended info will not be loaded.");
+    }
 
     //let extended_info = load_extented_info(Ipv4Addr::new(172, 29, 4, 250)).await;
     //println!("{:?}", extended_info);
