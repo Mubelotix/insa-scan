@@ -390,15 +390,15 @@ body::-webkit-scrollbar-thumb {
 .room-machine-list.show > div:nth-child(80) { transition-delay: 2s; }
 
 table.hidden tbody tr {
-    position: relative;
-    left: 100vw;
+    /* position: relative;
+    left: 100vw; */
     opacity: 0;
     transition: left 0s, opacity 0s;
 }
 
 table.show tbody tr {
-    position: relative;
-    left: 0;
+    /* position: relative;
+    left: 0; */
     opacity: 1;
     transition: left 1s, opacity 1s;
 }
