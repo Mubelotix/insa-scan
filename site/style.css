@@ -53,6 +53,7 @@ body {
     color: var(--text);
     font-family: 'Roboto', sans-serif;
     overflow: hidden auto;
+    min-width: fit-content;
 }
 
 main {
