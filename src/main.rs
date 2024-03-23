@@ -177,7 +177,26 @@ fn format_duration(seconds: u64) -> String {
 }
 
 async fn update_site(states: &States, data_dir: &str) {
-    let rooms = [("lin-2d", "Machines virtuelles"), ("stpi-aio-", "STPI"), ("boar205-", "Bo-A-R2-05	"), ("mahr203-", "Ma-H-R2-03"), ("mahr207-", "Ma-H-R2-07"), ("mahr209-", "Ma-H-R2-09"), ("iti-mahr211-", "Ma-H-R2-11"), ("iti-mahr213-", "Ma-H-R2-13"), ("iti-mahr215-", "Ma-H-R2-15"), ("perf-", "PERF"), ("ep-", "EP"), ("", "Inconnu")];
+    let rooms = [
+        ("lin-2d", "Machines virtuelles"),
+        ("stpi-aio-", "STPI (AOI)"),
+        ("stpi-lbs-", "STPI (LBS)"),
+        ("stpi-dell390-", "STPI (Dell)"),
+        ("stpi-", "STPI"),
+        ("boar203-", "Bo-A-R2-03"),
+        ("boar205-", "Bo-A-R2-05"),
+        ("boar207-", "Bo-A-R2-07"),
+        ("mahr203-", "Ma-H-R2-03"),
+        ("mahr205-", "Ma-H-R2-05"),
+        ("mahr207-", "Ma-H-R2-07"),
+        ("mahr209-", "Ma-H-R2-09"),
+        ("iti-mahr211-", "Ma-H-R2-11"),
+        ("iti-mahr213-", "Ma-H-R2-13"),
+        ("iti-mahr215-", "Ma-H-R2-15"),
+        ("perf-", "PERF"),
+        ("ep-", "EP"),
+        ("", "Inconnu")
+    ];
 
     let now_utc = now_utc();
     let mut total_up_count = 0;
