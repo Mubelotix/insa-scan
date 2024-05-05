@@ -442,7 +442,7 @@ impl MachineState {
                 continue;
             }
             let segment = self.changes[i] - std::cmp::max(self.changes[i-1], since);
-            if up {
+            if !up { // Negative because we just reversed the state
                 uptime += segment;
             } else {
                 downtime += segment;
