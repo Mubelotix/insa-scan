@@ -503,8 +503,6 @@ async fn main() {
     for ip in generate_ips() {
         states.entry(ip).or_default();
     }
-
-    states.retain(|ip, _| !is_blacklisted(*ip));
     
     update_stats(&states, &data_dir).await;
     loop {
