@@ -31,10 +31,6 @@ pub async fn run_shell_command(command: impl AsRef<str>) -> Result<String, Strin
     }
 }
 
-fn is_blacklisted(ip: Ipv4Addr) -> bool {
-    ip.octets()[2] == 0 || ip.octets()[2] == 33 || ip == Ipv4Addr::new(172, 29, 4, 250)
-}
-
 fn generate_ips() -> HashSet<Ipv4Addr> {
     let mut ips = HashSet::new();
     for i in 0..=255 {
@@ -92,7 +88,7 @@ async fn check_ip(ip: Ipv4Addr, was_up: bool, data_dir: &str, username: &Option<
 
 async fn update(states: &mut States, data_dir: &str, username: &Option<String>) {
     let mut candidates: Vec<(Ipv4Addr, bool, u64)> = states.iter().map(|(ip, state)| {
-        (*ip, state.up(), state.last_checked())
+        (*ip, state.has_ever_been_up(), state.last_checked())
     }).collect();
     candidates.sort_by(|(_, up1, t1), (_, up2, t2)| {
         up1.cmp(up2).reverse().then(t1.cmp(t2))
@@ -414,6 +410,10 @@ impl MachineState {
 
     pub fn up(&self) -> bool {
         self.changes.len() % 2 == 1
+    }
+    
+    pub fn has_ever_been_up(&self) -> bool {
+        !self.changes.is_empty()
     }
 
     pub fn up_at(&self, time_utc: u64) -> bool {
