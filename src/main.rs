@@ -139,7 +139,7 @@ async fn update_stats(states: &States, data_dir: &str) {
     for (ip, state) in states {
         let last_change_utc = state.last_change();
         let last_checked_utc = state.last_checked();
-        let (up, uptime, downtime) = state.times_since(now_utc - 30*86400, now_utc);
+        let (up, uptime, downtime) = state.times_since(now_utc - 365*86400, now_utc);
         if uptime == 0 && !up {
             continue;
         }
