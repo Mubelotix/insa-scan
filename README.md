@@ -10,6 +10,8 @@ This project is able to track uptime statistics, along with CPU and memory chara
 
 It is with deep disappointment and frustration that I must inform users that this project has been forcibly terminated by the school administration. Despite its potential to address a significant issue faced by students, particularly during off-hours, the administration showed a concerning lack of support or understanding for student-driven initiatives aimed at improving the learning environment. The abrupt shutdown of this project, without meaningful dialogue or consideration of its benefits, raises questions about the institution's commitment to fostering innovation and addressing student needs. This experience has been deeply disheartening and reflects a disconnect between administrative decisions and the practical challenges faced by the student body. I hope that M. Vasseur might reconsider his choice someday.
 
+I am giving away [all the archive data of previous scans](https://scan.insa.lol/states.bin) to any INSA student.
+
 ## Building
 
 ```bash
